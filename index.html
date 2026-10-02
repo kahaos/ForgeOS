@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ForgeOS Control Plane · Lifecycle Command Centre</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e8edf5;background:#0b0f14;--panel:#121821;--panel2:#0f151d;--line:#263241;--muted:#8f9bad;--accent:#7dd3fc;--ok:#6ee7a8;--warn:#facc15;--bad:#fb7185}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#0b0f14}body{overflow-x:hidden}
+button{font:inherit}.app{min-height:100vh;display:grid;grid-template-columns:240px minmax(0,1fr)}
+aside{border-right:1px solid var(--line);background:#0b1016;padding:20px 14px;position:sticky;top:0;height:100vh}
+.brand{font-weight:800;font-size:20px;padding:8px 10px 22px}.brand small{display:block;color:var(--muted);font-size:11px;font-weight:500;margin-top:4px}
+nav{display:grid;gap:4px}nav button{border:0;background:transparent;color:#aeb8c7;text-align:left;padding:11px 12px;border-radius:9px;cursor:pointer}nav button:hover,nav button.active{background:#17212c;color:#fff}
+main{min-width:0}.top{border-bottom:1px solid var(--line);padding:18px 28px 14px;position:sticky;top:0;background:rgba(11,15,20,.96);backdrop-filter:blur(10px);z-index:3}
+.context{display:grid;grid-template-columns:minmax(190px,1.5fr) repeat(3,minmax(120px,1fr));gap:18px;align-items:end}.ctx{min-width:0}.ctx label{display:block;color:var(--muted);font-size:12px;margin-bottom:4px}.ctx strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.content{padding:28px;max-width:1400px;margin:auto}.eyebrow{color:var(--accent);font-size:13px;letter-spacing:.08em;font-weight:700}.title{font-size:32px;font-weight:800;margin:6px 0}.sub{color:var(--muted);margin-bottom:24px}
+.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px}.card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:16px;padding:20px;min-width:0}.span12{grid-column:span 12}.span8{grid-column:span 8}.span6{grid-column:span 6}.span4{grid-column:span 4}.label{color:var(--muted);font-size:13px;font-weight:650}.big{font-size:25px;font-weight:800;margin-top:7px;overflow-wrap:anywhere}.muted{color:var(--muted)}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.hero{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(220px,.7fr);gap:16px}.state{font-size:clamp(28px,4vw,46px);font-weight:850;margin:7px 0;overflow-wrap:anywhere}.next{color:var(--muted)}.action{border-left:4px solid var(--warn);padding-left:14px}.action h3{margin:0 0 6px}.action p{margin:0;color:#c5cedb;line-height:1.5}
+.health{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.health .card{padding:15px}.health-value{font-size:18px;font-weight:800;margin-top:5px}
+.lifecycle{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.stage{border:1px solid var(--line);border-radius:12px;padding:14px;background:#0e141c;min-height:78px}.stage .n{color:#657286;font-size:11px}.stage .s{font-weight:750;font-size:13px;margin-top:7px;overflow-wrap:anywhere}.stage.current{border-color:var(--accent);box-shadow:0 0 0 1px rgba(125,211,252,.18) inset}.stage.done{background:#111a18}.stage.future{opacity:.78}
+.history{display:grid;gap:9px;max-height:390px;overflow:auto}.event{border:1px solid var(--line);border-radius:12px;padding:13px}.event-top{display:flex;justify-content:space-between;gap:12px}.event-time{color:var(--muted);font-size:12px}.event-state{font-weight:750;margin-top:5px}.digest{color:var(--muted);font-size:12px;margin-top:5px;word-break:break-all}
+.panel{display:none}.panel.active{display:block}.empty{color:var(--muted);padding:30px 0}
+.refresh{border:1px solid var(--line);background:#101721;color:#dce5f0;border-radius:10px;padding:9px 12px;cursor:pointer}.refresh:hover{border-color:#526276}
+.error{border:1px solid #62404a;background:#1b1416;color:#ffd9df;border-radius:12px;padding:14px}
+@media(max-width:900px){.app{grid-template-columns:1fr}aside{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:10px 12px}.brand{padding:4px 6px 10px}nav{display:flex;overflow-x:auto;gap:4px;padding-bottom:2px}nav button{white-space:nowrap}.top{position:static;padding:14px 16px}.context{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.content{padding:18px 14px}.hero{grid-template-columns:1fr}.span8,.span6,.span4{grid-column:span 12}.lifecycle{grid-template-columns:repeat(2,minmax(0,1fr))}.health{grid-template-columns:1fr}}
+@media(max-width:520px){.context{grid-template-columns:1fr 1fr}.title{font-size:27px}.card{padding:16px}.lifecycle{grid-template-columns:1fr}.event-top{display:block}.event-state{font-size:14px}.big{font-size:21px}}
+
+/* PATCH-008 responsive mobile overrides */
+@media (max-width: 850px){
+  .app{display:block;min-height:100vh}
+  aside{position:sticky;top:0;z-index:20;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:10px 10px 8px}
+  .brand{padding:4px 8px 10px}
+  nav{display:flex;gap:6px;overflow-x:auto;white-space:nowrap;padding-bottom:3px;scrollbar-width:none}
+  nav::-webkit-scrollbar{display:none}
+  nav button{flex:0 0 auto;padding:10px 12px}
+  main{min-width:0;overflow-x:hidden}
+  .content{padding:18px 14px 40px;max-width:100%;overflow:hidden}
+  .context{grid-template-columns:1fr 1fr;gap:10px}
+  .grid{display:grid!important;grid-template-columns:1fr!important;gap:12px!important}
+  .card{min-width:0;max-width:100%;overflow:hidden}
+  .big{font-size:clamp(20px,6vw,32px);overflow-wrap:anywhere;word-break:normal}
+  .label,.muted,.sub,.empty,.action p{overflow-wrap:anywhere}
+  .event{min-width:0;overflow:hidden}
+  .event-state,.digest{overflow-wrap:anywhere}
+}
+@media (max-width:520px){
+  .context{grid-template-columns:1fr}
+  .content{padding-left:12px;padding-right:12px}
+  .title{font-size:clamp(27px,8vw,38px);line-height:1.05}
+  .big{font-size:24px;line-height:1.1}
+  .card{padding:16px}
+  .action h3{font-size:20px}
+}
+
+</style>
+</head>
+<body>
+<div class="app">
+<aside>
+  <div class="brand">ForgeOS<small>Governed software control plane · Alpha 0.7</small></div>
+  <nav id="nav"></nav>
+</aside>
+<main>
+  <header class="top">
+    <div class="context">
+      <div class="ctx"><label>Project</label><strong id="ctxProject">Loading…</strong></div>
+      <div class="ctx"><label>Lifecycle</label><strong id="ctxState">Loading…</strong></div>
+      <div class="ctx"><label>Release</label><strong id="ctxRelease">Loading…</strong></div>
+      <div class="ctx"><label>Target</label><strong id="ctxTarget">Loading…</strong></div>
+    </div>
+  </header>
+
+  <section id="overview" class="panel active">
+    <div class="content">
+      <div class="eyebrow">LIFECYCLE COMMAND CENTRE</div>
+      <div class="title">Operate the governed lifecycle.</div>
+      <div class="sub">Current state, blocker, human action, health and lifecycle history are derived from authoritative API responses.</div>
+
+      <div id="apiError" class="error" style="display:none"></div>
+
+      <div class="hero">
+        <div class="card">
+          <div class="label">Current state</div>
+          <div id="currentState" class="state">Loading…</div>
+          <div id="nextState" class="next">Reading lifecycle permissions…</div>
+        </div>
+        <div class="card">
+          <div class="label">Required human action</div>
+          <div id="humanAction" class="action" style="margin-top:10px">
+            <h3>Loading…</h3><p>Reading governance state.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid" style="margin-top:16px">
+        <div class="card span4"><div class="label">Current release</div><div id="release" class="big">Loading…</div><div class="muted">Integrity-protected reference</div></div>
+        <div class="card span4"><div class="label">Deployment target</div><div id="target" class="big">Loading…</div><div class="muted">Authoritative target binding</div></div>
+        <div class="card span4"><div class="label">Governance</div><div id="governance" class="big ok">Loading…</div><div id="production" class="muted">Production status…</div></div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="label">Lifecycle</div>
+        <div id="lifecycle" class="lifecycle" style="margin-top:12px"></div>
+      </div>
+
+      <div class="grid" style="margin-top:16px">
+        <div class="card span6">
+          <div class="label">System health</div>
+          <div class="health" style="margin-top:12px">
+            <div class="card"><div class="label">Governance</div><div id="hGov" class="health-value">—</div></div>
+            <div class="card"><div class="label">API</div><div id="hApi" class="health-value">—</div></div>
+            <div class="card"><div class="label">Integrity</div><div id="hIntegrity" class="health-value">—</div></div>
+          </div>
+        </div>
+        <div class="card span6">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <div class="label">State history</div>
+            <button class="refresh" onclick="loadAll()">Refresh</button>
+          </div>
+          <div id="history" class="history" style="margin-top:12px"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="label">Recent lifecycle events</div>
+        <div id="recent" class="history" style="margin-top:12px"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="workspace" class="panel">
+    <div class="content">
+      <div class="eyebrow" id="wsEyebrow">PROJECT WORKSPACE</div>
+      <div class="title" id="wsTitle">ForgeOS</div>
+      <div class="sub" id="wsSub">Continuous operational context derived from the authoritative API.</div>
+      <div id="wsBody"></div>
+    </div>
+  </section>
+</main>
+</div>
+
+<script>
+const NAV=["Overview","Projects","Runs","Releases","Deployments","Evidence","Audit","Policies","System"];
+const STATES=["REQUESTED","EXPERIMENTING","EVIDENCE_READY","VERDICTED","APPROVAL_PENDING","RELEASED","DEPLOYMENT_PRECHECKED","DEPLOYMENT_APPROVED","DEPLOYED","MONITORING","ROLLBACK"];
+let statusData=null,lifecycleData=null,auditData=null;
+
+document.getElementById("nav").innerHTML=NAV.map((n,i)=>`<button class="${i===0?"active":""}" data-panel="${n.toLowerCase()}">${n}</button>`).join("");
+document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.remove("active"));b.classList.add("active");
+  document.querySelectorAll(".panel").forEach(x=>x.classList.remove("active"));
+  if(b.dataset.panel==="overview") document.getElementById("overview").classList.add("active");
+  else {document.getElementById("workspace").classList.add("active"); if(b.dataset.panel==="system") renderSystemHealth(); else renderWorkspace(b.dataset.panel);}
+}));
+
+function card(title,value,detail=""){return `<div class="card"><div class="label">${esc(title)}</div><div class="big">${esc(value)}</div><div class="muted">${esc(detail)}</div></div>`}
+function eventRows(){return (auditData?.events||[]).slice().reverse().map(e=>{
+  const transition=[e.from_state,e.to_state].filter(Boolean).join(" → ");
+  const label=e.action||transition||"Audit event";
+  const object=[e.release_id,e.target,e.project_id].filter(Boolean).join(" · ");
+  const digest=e.event_digest||e.approval_digest||"";
+  return `<div class="event"><div class="event-top"><div class="event-time">${esc(fmt(e.timestamp))}</div><div class="muted">${esc(e.actor||"—")}</div></div><div class="event-state">${esc(label)}</div><div class="muted">${esc(object)}</div>${digest?`<div class="digest">digest: ${esc(digest)}</div>`:""}</div>`;
+}).join("")}
+
+function renderSystemHealth(){
+  const sys=statusData?.system||{};
+  const gov=statusData?.governance||{};
+  const checks=[
+    ["Overall API", statusData?.status||"UNKNOWN"],
+    ["Governance core", sys.governance_core||"UNKNOWN"],
+    ["API", sys.api||"UNKNOWN"],
+    ["UI", sys.ui||"UNKNOWN"],
+    ["Production", sys.production_enabled===false?"DISABLED":sys.production_enabled===true?"ENABLED":"UNKNOWN"],
+    ["Governance authority", gov.authoritative?"AUTHORITATIVE":"UNKNOWN"]
+  ];
+  document.getElementById("wsEyebrow").textContent="SYSTEM HEALTH";
+  document.getElementById("wsTitle").textContent="System Health";
+  document.getElementById("wsSub").textContent="Live health and governance indicators derived from the authoritative status endpoint.";
+  document.getElementById("wsBody").innerHTML=`<div class="grid">${checks.map(x=>card(x[0],x[1],"Authoritative status")).join("")}</div>
+  <div class="card" style="margin-top:16px"><div class="label">Production safety</div>
+  <div class="action"><h3>${sys.production_enabled===false?"Production is disabled":"Production state is not disabled"}</h3>
+  <p>System health is informational. Governance and deployment authorization remain backend-controlled.</p></div></div>`;
+}
+
+function renderWorkspace(panel){
+  const p=statusData?.project||{}, state=lifecycleData?.state||statusData?.lifecycle?.state||"UNKNOWN";
+  const release=statusData?.current_release||"—", target=statusData?.target||"—";
+  const events=auditData?.events||[];
+  const approval=events.find(e=>e.action==="APPROVED");
+  const preflight=events.find(e=>e.to_state==="DEPLOYMENT_PRECHECKED");
+  const body=document.getElementById("wsBody");
+  const configs={
+    projects:["PROJECT WORKSPACE","Project Workspace","One continuous context for lifecycle, runs, evidence, releases, deployments and audit."],
+    runs:["RUN & EVIDENCE WORKSPACE","Runs & Evidence","Verification context is shown from the records currently exposed by the backend."],
+    releases:["RELEASE & DEPLOYMENT WORKSPACE","Releases","Release identity, approval context, target and lifecycle state."],
+    deployments:["RELEASE & DEPLOYMENT WORKSPACE","Deployments","Deployment context, preflight and approval state."],
+    evidence:["RUN & EVIDENCE WORKSPACE","Evidence","Evidence and integrity context associated with the current project."],
+    audit:["AUDIT TIMELINE","Audit Timeline","Append-only lifecycle, approval and deployment history for the current project."]
+  };
+  const c=configs[panel]||configs.projects;
+  document.getElementById("wsEyebrow").textContent=c[0];
+  document.getElementById("wsTitle").textContent=c[1];
+  document.getElementById("wsSub").textContent=c[2];
+
+  if(panel==="projects"){
+    body.innerHTML=`<div class="grid">
+      ${card("Project",p.name||p.project_id||"—",p.project_id||"")}
+      ${card("Current lifecycle",state,"Authoritative lifecycle state")}
+      ${card("Current release",release,"Historical release context")}
+      ${card("Deployment target",target,"Bound target")}
+    </div>
+    <div class="card" style="margin-top:16px"><div class="label">Project activity</div><div class="history" style="margin-top:12px">${eventRows()||'<div class="empty">No audit records returned.</div>'}</div></div>`;
+  } else if(panel==="runs"){
+    body.innerHTML=`<div class="grid">${card("Project",p.name||p.project_id||"—","Continuous project context")}${card("Verification state",state,"Current lifecycle state")}${card("Evidence status",events.length?"Records returned":"Not exposed","No separate runs/evidence API is currently exposed")}</div>
+    <div class="card" style="margin-top:16px"><div class="label">Run/evidence boundary</div><div class="empty">ForgeOS does not fabricate run or evidence records. Dedicated run/evidence APIs must be exposed by the backend before individual records can be displayed.</div></div>`;
+  } else if(panel==="releases"){
+    body.innerHTML=`<div class="grid">${card("Release ID",release,"Integrity-protected reference")}${card("Lifecycle",state,"Authoritative state")}${card("Target",target,"Bound deployment target")}${card("Approval",approval?"APPROVED":"Not evidenced",approval?"Approval event present in audit stream":"No approval event exposed")}</div>
+    <div class="card" style="margin-top:16px"><div class="label">Release audit context</div><div class="history" style="margin-top:12px">${eventRows()||'<div class="empty">No audit records returned.</div>'}</div></div>`;
+  } else if(panel==="deployments"){
+    body.innerHTML=`<div class="grid">${card("Release",release,"Bound release")}${card("Target",target,"Bound target")}${card("Preflight",preflight?"COMPLETED":"Not evidenced",preflight?"Deployment precheck event present":"No preflight record exposed")}${card("Approval",state==="DEPLOYMENT_PRECHECKED"?"REQUIRED":approval?"APPROVED":"Not evidenced",state==="DEPLOYMENT_PRECHECKED"?"Deployment approval is the next governed action": "Derived from authoritative state")}</div>
+    <div class="card" style="margin-top:16px"><div class="action"><h3>Backend gate remains authoritative — backend remains the authoritative security boundary</h3><p>A visible UI surface does not authorize deployment. The backend must independently enforce release, target, preflight, policy and approval binding.</p></div></div>`;
+  } else if(panel==="evidence"){
+    body.innerHTML=`<div class="grid">${card("Current release",release,"Integrity-protected reference")}${card("Audit records",String(events.length),"Returned by authoritative audit endpoint")}${card("Integrity",events.some(e=>e.event_digest||e.approval_digest)?"DIGESTS PRESENT":"NOT EVIDENCED","Integrity indicators from returned records")}</div>
+    <div class="card" style="margin-top:16px"><div class="label">Evidence boundary</div><div class="empty">Only evidence exposed by the backend is displayed. ForgeOS does not invent files, test results or verdicts that are not present in authoritative records.</div></div>`;
+  } else {
+    body.innerHTML=`<div class="card"><div class="label">Append-only audit timeline</div><div class="history" style="margin-top:12px">${eventRows()||'<div class="empty">No audit records returned.</div>'}</div></div>`;
+  }
+}
+
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=t=>{try{return new Date(t).toLocaleString()}catch{return t||"—"}};
+
+async function getJSON(path){
+  const r=await fetch(path,{cache:"no-store"});
+  if(!r.ok) throw new Error(path+" → HTTP "+r.status);
+  return r.json();
+}
+function renderLifecycle(){
+  const current=lifecycleData?.state||statusData?.lifecycle?.state||"UNKNOWN";
+  const idx=STATES.indexOf(current);
+  document.getElementById("lifecycle").innerHTML=STATES.map((s,i)=>{
+    const cls=i===idx?"current":(i<idx?"done":"future");
+    return `<div class="stage ${cls}"><div class="n">${String(i+1).padStart(2,"0")}</div><div class="s">${s}</div></div>`;
+  }).join("");
+  document.getElementById("currentState").textContent=current;
+  const allowed=lifecycleData?.allowed_next_states||statusData?.lifecycle?.allowed_next_states||[];
+  document.getElementById("nextState").textContent=allowed.length?("Next governed state: "+allowed.join(", ")):"No permitted transition exposed";
+  let action="No human action exposed";
+  let detail="The backend has not exposed a permitted next transition requiring operator action.";
+  if(current==="APPROVAL_PENDING"){action="Release approval required";detail="A human approval is required before the release can become RELEASED."}
+  else if(current==="DEPLOYMENT_PRECHECKED"){action="Deployment approval required";detail="The next governed action is DEPLOYMENT_APPROVED with its release, target and preflight context bound by the backend."}
+  else if(allowed.length){action="Operator review";detail="The backend exposes the next permitted lifecycle state: "+allowed.join(", ")+ "."}
+  document.getElementById("humanAction").innerHTML=`<h3>${esc(action)}</h3><p>${esc(detail)}</p>`;
+}
+function renderStatus(){
+  const p=statusData?.project||{};
+  document.getElementById("ctxProject").textContent=p.name||p.project_id||"—";
+  document.getElementById("ctxState").textContent=statusData?.lifecycle?.state||"—";
+  document.getElementById("ctxRelease").textContent=statusData?.current_release||"—";
+  document.getElementById("ctxTarget").textContent=statusData?.target||"—";
+  document.getElementById("release").textContent=statusData?.current_release||"—";
+  document.getElementById("target").textContent=statusData?.target||"—";
+  const auth=statusData?.governance?.authoritative;
+  document.getElementById("governance").textContent=auth===true?"Authoritative":auth===false?"Not authoritative":"Unknown";
+  document.getElementById("production").textContent=statusData?.system?.production_enabled===false?"Production disabled":"Production status unknown";
+  document.getElementById("hGov").textContent=statusData?.system?.governance_core||"—";
+  document.getElementById("hApi").textContent=statusData?.system?.api||"—";
+  document.getElementById("hIntegrity").textContent=(statusData?.current_release&&auditData?.events?.some(e=>e.event_digest||e.approval_digest))?"Protected":"Not evidenced";
+}
+function renderEvents(){
+  const events=(auditData?.events||[]);
+  const html=events.slice().reverse().map(e=>{
+    const from=e.from_state||"";
+    const to=e.to_state||"";
+    const label=e.action||([from,to].filter(Boolean).join(" → "))||"Audit event";
+    const digest=e.event_digest||e.approval_digest||"";
+    return `<div class="event"><div class="event-top"><div class="event-time">${esc(fmt(e.timestamp))}</div><div class="muted">${esc(e.actor||"—")}</div></div><div class="event-state">${esc(label)}</div>${digest?`<div class="digest">digest: ${esc(digest)}</div>`:""}</div>`;
+  }).join("");
+  document.getElementById("recent").innerHTML=html||`<div class="empty">No lifecycle events returned.</div>`;
+  document.getElementById("history").innerHTML=html||`<div class="empty">No state history returned.</div>`;
+}
+async function loadAll(){
+  const err=document.getElementById("apiError");err.style.display="none";
+  try{
+    [statusData,lifecycleData,auditData]=await Promise.all([getJSON("/api/status"),getJSON("/api/lifecycle"),getJSON("/api/audit")]);
+    renderStatus();renderLifecycle();renderEvents();
+  }catch(e){err.textContent="API read failed · "+e.message;err.style.display="block"}
+}
+loadAll();
+setInterval(loadAll,10000);
+</script>
+</body>
+</html>

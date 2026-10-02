@@ -1,0 +1,11 @@
+{
+  "schema": "forgeos.alpha07.branch.v1",
+  "branch": "alpha-0.7",
+  "parent": "alpha-0.6-accepted-2026-09-27",
+  "parent_directory": "/opt/forgeos/alpha/forgeos_alpha_0_6",
+  "purpose": "ForgeOS product foundation: governance core, API and first web UI.",
+  "port": 8510,
+  "silverforge_integration": false,
+  "production_enabled": false,
+  "ui_security_boundary": false
+}

@@ -1,0 +1,519 @@
+=== PROJECT DOMAIN CREATE EXPERIMENT ===
+    def create_experiment(self, store, body, actor="ai"):
+        state=store.state()
+        if state["state"] != "EXPERIMENTING":
+            raise DomainError(f"experiment_create_requires_EXPERIMENTING:{state['state']}")
+
+        project_id=body.get("project_id")
+        if project_id != state["project_id"]:
+            raise DomainError("project_binding_mismatch")
+
+        experiment_id=body.get("experiment_id")
+        name=body.get("name")
+        if not isinstance(experiment_id,str) or not experiment_id.strip():
+            raise DomainError("experiment_id_required")
+        if not isinstance(name,str) or not name.strip():
+            raise DomainError("experiment_name_required")
+
+        data=self._load()
+        if experiment_id in data["experiments"]:
+            raise DomainError("experiment_exists")
+
+        record={
+            "schema":"forgeos.ai.experiment.v1",
+            "experiment_id":experiment_id,
+            "project_id":project_id,
+            "name":name.strip(),
+            "description":body.get("description",""),
+            "status":"CREATED",
+            "created_by":actor,
+            "created_at":now(),
+        }
+        record["digest"]=digest(record)
+        data["experiments"][experiment_id]=record
+        self._save(data)
+        event=self._audit("EXPERIMENT_CREATED",actor,{
+            "project_id":project_id,
+            "experiment_id":experiment_id,
+            "experiment_digest":record["digest"],
+        })
+        return {"experiment":record,"event":event}
+
+    def inspect_experiment(self, store, experiment_id):
+        data=self._load()
+        record=data["experiments"].get(experiment_id)
+        if record is None:
+            raise DomainError("experiment_not_found")
+        if record["project_id"] != store.state()["project_id"]:
+            raise DomainError("project_binding_mismatch")
+        return record
+
+    def audit(self):
+        if not self.audit_file.exists():
+            return []
+        return [json.loads(x) for x in self.audit_file.read_text().splitlines() if x.strip()]
+
+=== AI EXECUTION API ===
+"""AI-native governed execution HTTP adapter for PATCH-013C."""
+from governed_execution import GovernedExecutionError
+
+PREFIX="/api/ai/v1/"
+
+def _json_error(code, detail, status=409):
+    return status, {"schema":"forgeos.ai.error.v1","error":code,"detail":detail}
+
+def get(path, store, execution):
+    if path == PREFIX+"execution":
+        project = store.state()
+        execution_state = execution._state()
+        project_execution = execution_state.get("projects", {}).get(
+            project.get("project_id"), {}
+        )
+        return 200, {"schema":"forgeos.ai.execution_context.v1",
+                      "project_id":project.get("project_id"),
+                      "lifecycle":project.get("state"),
+                      "target":project.get("target"),
+                      "production_enabled":False,
+                      "governance_authoritative":True,
+                      "release":project_execution.get("release"),
+                      "approval_request":project_execution.get("approval_request"),
+                      "preflight":project_execution.get("preflight"),
+                      "capabilities":["evidence.submit","verdict.create","approval.request","approval.approve",
+                                      "release.create","deployment.preflight",
+                                      "deployment.execute","deployment.verify","rollback.request"]}
+    if path == PREFIX+"execution/audit":
+        return 200, {"schema":"forgeos.ai.execution_audit.v1","events":execution.audit()}
+    return None
+
+def post(path, body, store, execution, approval):
+    try:
+        if path==PREFIX+"evidence":
+            return 201, execution.submit_evidence(body["project_id"],body["experiment_id"],body["content"],body.get("actor","ai"))
+        if path==PREFIX+"verdict":
+            return 201, execution.create_verdict(body["project_id"],body["evidence_id"],body["verdict"],body.get("rationale",""),body.get("actor","ai"))
+        if path==PREFIX+"approval/request":
+            return 201, execution.request_approval(body["project_id"],body["release_id"],body["target"],body["verdict_id"],body.get("actor","ai"))
+        if path==PREFIX+"approval/approve":
+            return 200, execution.approve_release(
+                body["project_id"],
+                body["release_id"],
+                body["target"],
+                body["verdict_id"],
+                body.get("approved_by") or body.get("actor"),
+            )
+        if path==PREFIX+"release":
+            return 201, execution.create_release(body["project_id"],body["release_id"],body["verdict_id"],body["target"],body.get("actor","ai"))
+        if path==PREFIX+"deployment/preflight":
+            return 200, execution.mark_preflight(body["project_id"],body["release_id"],body["target"],body.get("actor","system"))
+        if path==PREFIX+"deployment/execute":
+            # Execution requires a prior backend-approved lifecycle state and preflight.
+            rec=execution.deploy_local_test(body["project_id"],body["release_id"],body["target"],body.get("actor","system"))
+            return 200, rec
+        if path==PREFIX+"deployment/verify":
+            return 200, execution.verify(body["project_id"],body["receipt"],body.get("actor","system"))
+        if path==PREFIX+"rollback":
+            return 200, execution.rollback(body["project_id"],body["release_id"],body.get("reason","unspecified"),body.get("actor","human"))
+        return None
+    except KeyError as exc:
+        return _json_error("required_field_missing",str(exc),400)
+    except GovernedExecutionError as exc:
+        return _json_error("governed_execution_blocked",str(exc),409)
+
+=== GOVERNED EXECUTION: EVIDENCE ===
+            raise GovernedExecutionError("target_not_allowed")
+        self._verify_integrity(rel, error="release_integrity_failed")
+        self._get_verdict(project_id, rel.get("verdict_id"))
+        return rel
+
+    def submit_evidence(self, project_id, experiment_id, content, actor="ai"):
+        self._require_project(project_id)
+        self._require_state("EXPERIMENTING")
+        if not experiment_id or not content:
+            raise GovernedExecutionError("experiment_id_and_content_required")
+        ev = _read(self.evidence_file, {"schema": EVIDENCE_SCHEMA, "items": []})
+        if any(x["project_id"] == project_id and x["experiment_id"] == experiment_id for x in ev["items"]):
+            raise GovernedExecutionError("evidence_already_exists")
+        rec = {
+            "schema": EVIDENCE_SCHEMA,
+            "evidence_id": "EVD-" + secrets.token_hex(6).upper(),
+            "project_id": project_id,
+            "experiment_id": experiment_id,
+            "content": content,
+            "created_at": now(),
+            "actor": actor,
+        }
+        rec["integrity_digest"] = digest(rec)
+        ev["items"].append(rec)
+        _write(self.evidence_file, ev)
+        self._audit("EVIDENCE_SUBMITTED", project_id, rec, actor)
+        self._transition("EVIDENCE_READY", actor)
+        return rec
+
+    def create_verdict(self, project_id, evidence_id, verdict, rationale="", actor="ai"):
+        self._require_project(project_id)
+        self._require_state("EVIDENCE_READY")
+        self._get_evidence(project_id, evidence_id)
+        vs = _read(self.verdict_file, {"schema": VERDICT_SCHEMA, "items": []})
+        rec = {
+            "schema": VERDICT_SCHEMA,
+            "verdict_id": "VER-" + secrets.token_hex(6).upper(),
+            "project_id": project_id,
+            "evidence_id": evidence_id,
+            "verdict": verdict,
+            "rationale": rationale,
+            "created_at": now(),
+            "actor": actor,
+        }
+        rec["integrity_digest"] = digest(rec)
+        vs["items"].append(rec)
+        _write(self.verdict_file, vs)
+        self._audit("VERDICT_CREATED", project_id, rec, actor)
+        self._transition("VERDICTED", actor)
+        return rec
+
+    def create_release(self, project_id, release_id, verdict_id, target, actor="ai"):
+        self._require_project(project_id)
+        self._require_state("VERDICTED")
+        if target != "local-test":
+            raise GovernedExecutionError("target_not_allowed")
+        self._get_verdict(project_id, verdict_id)
+        rs = _read(self.release_file, {"schema": RELEASE_SCHEMA, "items": []})
+        if any(x["release_id"] == release_id for x in rs["items"]):
+            raise GovernedExecutionError("release_exists")
+        rec = {
+            "schema": RELEASE_SCHEMA,
+            "release_id": release_id,
+            "project_id": project_id,
+            "verdict_id": verdict_id,
+            "target": target,
+            "created_at": now(),
+            "actor": actor,
+        }
+        rec["integrity_digest"] = digest(rec)
+        rs["items"].append(rec)
+        _write(self.release_file, rs)
+
+        # Persist the active governed release context separately from the
+        # legacy GovernanceStore. GovernanceStore remains the sole lifecycle
+        # authority; this is only the 013C execution-domain binding.
+        st = self._state()
+        project_state = st["projects"].setdefault(project_id, {})
+        project_state["release"] = {
+            "release_id": release_id,
+            "verdict_id": verdict_id,
+            "target": target,
+            "release_digest": rec["integrity_digest"],
+            "created_at": rec["created_at"],
+        }
+        self._save(st)
+
+        self._audit("RELEASE_CREATED", project_id, rec, actor)
+        return rec
+
+    def request_approval(self, project_id, release_id, target, verdict_id, actor="ai"):
+
+=== GOVERNED EXECUTION: APPROVAL ===
+            "verdict_id": verdict_id,
+            "target": target,
+            "release_digest": rec["integrity_digest"],
+            "created_at": rec["created_at"],
+        }
+        self._save(st)
+
+        self._audit("RELEASE_CREATED", project_id, rec, actor)
+        return rec
+
+    def request_approval(self, project_id, release_id, target, verdict_id, actor="ai"):
+        self._require_project(project_id)
+        self._require_state("VERDICTED")
+        if target != "local-test":
+            raise GovernedExecutionError("target_not_allowed")
+        rel = self._get_release(project_id, release_id, target)
+        if rel.get("verdict_id") != verdict_id:
+            raise GovernedExecutionError("release_binding_mismatch")
+        st = self._state()
+        p = st["projects"].setdefault(project_id, {})
+        p["approval_request"] = {
+            "release_id": release_id,
+            "target": target,
+            "verdict_id": verdict_id,
+            "requested_at": now(),
+            "requested_by": actor,
+        }
+        self._save(st)
+        self._audit("APPROVAL_REQUESTED", project_id, p["approval_request"], actor)
+        self._transition("APPROVAL_PENDING", actor)
+        return p["approval_request"]
+
+    def require_valid_release_approval(
+        self,
+        project_id,
+        release_id,
+        target,
+        verdict_id,
+    ):
+        """Verify a persisted 013C release approval record.
+
+        This is a read-only governed integrity check. It verifies:
+        - exact project/release/target/verdict binding
+        - approval status
+        - release integrity
+        - approval-request binding
+        - approval digest integrity
+        - persisted approval-record equality
+        """
+        self._require_project(project_id)
+
+        if target != "local-test":
+            raise GovernedExecutionError("only local-test approval is enabled")
+
+        approvals = _read(
+            self.approval_file,
+            {"schema": "forgeos.release_approvals.v1", "items": []},
+        )
+
+        record = next(
+            (
+                item
+                for item in approvals.get("items", [])
+                if item.get("project_id") == project_id
+                and item.get("release_id") == release_id
+                and item.get("target") == target
+            ),
+            None,
+        )
+
+        if record is None:
+            raise GovernedExecutionError("release_approval_not_found")
+
+        if record.get("status") != "APPROVED":
+            raise GovernedExecutionError(
+                f"release_approval_not_approved:{record.get('status')}"
+            )
+
+        if record.get("verdict_id") != verdict_id:
+            raise GovernedExecutionError(
+                "release_approval_verdict_binding_mismatch"
+            )
+
+        rel = self._get_release(project_id, release_id, target)
+
+        if record.get("release_digest") != rel.get("integrity_digest"):
+            raise GovernedExecutionError(
+                "release_approval_release_mismatch"
+            )
+
+        approval_digest = record.get("approval_digest")
+        if not approval_digest:
+            raise GovernedExecutionError(
+                "release_approval_digest_missing"
+            )
+
+        unsigned = dict(record)
+        unsigned.pop("approval_digest", None)
+
+        if digest(unsigned) != approval_digest:
+            raise GovernedExecutionError(
+                "release_approval_integrity_failed"
+            )
+
+        stored = next(
+            (
+                item
+                for item in approvals.get("items", [])
+                if item.get("approval_digest") == approval_digest
+            ),
+            None,
+        )
+
+        if stored is None:
+            raise GovernedExecutionError(
+                "release_approval_not_recorded"
+            )
+
+        if stored != record:
+            raise GovernedExecutionError(
+                "release_approval_record_mismatch"
+            )
+
+        st = self._state()
+        project_state = st.get("projects", {}).get(project_id, {})
+        request = project_state.get("approval_request")
+
+        if not request:
+            raise GovernedExecutionError(
+                "no approval request exists"
+            )
+
+        if request.get("project_id", project_id) != project_id:
+            raise GovernedExecutionError(
+                "approval_request_project_binding_mismatch"
+            )
+
+        if request.get("release_id") != release_id:
+            raise GovernedExecutionError(
+                "approval_request_release_binding_mismatch"
+            )
+
+        if request.get("target") != target:
+            raise GovernedExecutionError(
+                "approval_request_target_binding_mismatch"
+            )
+
+        if request.get("verdict_id") != verdict_id:
+            raise GovernedExecutionError(
+                "approval_request_verdict_binding_mismatch"
+            )
+
+        return record
+
+    def approve_release(
+        self,
+        project_id,
+        release_id,
+        target,
+        verdict_id,
+        approved_by,
+    ):
+        """Consume a 013C release approval request.
+
+        This is the human release-approval gate for the governed execution
+        domain. It intentionally does not use the legacy ApprovalGate.
+        GovernanceStore remains authoritative for lifecycle state.
+        """
+        self._require_project(project_id)
+        self._require_state("APPROVAL_PENDING")
+
+        if target != "local-test":
+            raise GovernedExecutionError(
+                "only local-test approval is enabled"
+            )
+
+        if not approved_by:
+            raise GovernedExecutionError(
+                "approved_by is required"
+            )
+
+        # Exact release binding and release integrity.
+        rel = self._get_release(
+            project_id,
+            release_id,
+            target,
+        )
+
+        if rel.get("verdict_id") != verdict_id:
+            raise GovernedExecutionError(
+                "approval verdict binding mismatch"
+            )
+
+        stored_release_digest = rel.get("integrity_digest")
+        if not stored_release_digest:
+            raise GovernedExecutionError(
+                "release integrity digest missing"
+            )
+
+        unsigned_release = dict(rel)
+        unsigned_release.pop("integrity_digest", None)
+
+        if digest(unsigned_release) != stored_release_digest:
+            raise GovernedExecutionError(
+                "release integrity check failed"
+            )
+
+=== GOVERNED EXECUTION: DEPLOYMENT ===
+            self.governance.transition(
+                "RELEASED",
+                approved_by,
+            )
+
+        return record
+
+    def preflight(self, project_id, release_id, target, actor="system"):
+        self._require_project(project_id)
+        self._require_state("RELEASED")
+        if target != "local-test":
+            raise GovernedExecutionError("target_not_allowed")
+        rel = self._get_release(project_id, release_id, target)
+        result = {
+            "schema": PREFLIGHT_SCHEMA,
+            "project_id": project_id,
+            "release_id": release_id,
+            "target": target,
+            "release_digest": rel["integrity_digest"],
+            "passed": True,
+            "checks": ["project", "release", "target", "integrity", "verdict_chain", "production_disabled"],
+            "production_enabled": False,
+            "timestamp": now(),
+        }
+        result["integrity_digest"] = digest(result)
+        self._audit("PREFLIGHT_PASSED", project_id, result, actor)
+        self._transition("DEPLOYMENT_PRECHECKED", actor)
+        return result
+
+    def mark_preflight(self, project_id, release_id, target, actor="system"):
+        result = self.preflight(project_id, release_id, target, actor)
+        st = self._state()
+        p = st["projects"].setdefault(project_id, {})
+        p["preflight"] = result
+        p["preflight_passed"] = True
+        self._save(st)
+        return result
+
+    def _require_preflight(self, project_id, release_id, target):
+        p = self._state().get("projects", {}).get(project_id, {})
+        preflight = p.get("preflight")
+        if not p.get("preflight_passed") or not isinstance(preflight, dict):
+            raise GovernedExecutionError("preflight_required")
+        if (preflight.get("project_id"), preflight.get("release_id"), preflight.get("target")) != (project_id, release_id, target):
+            raise GovernedExecutionError("preflight_binding_mismatch")
+        self._verify_integrity(preflight, error="preflight_integrity_failed")
+        if not preflight.get("passed"):
+            raise GovernedExecutionError("preflight_failed")
+        rel = self._get_release(project_id, release_id, target)
+        if preflight.get("release_digest") != rel.get("integrity_digest"):
+            raise GovernedExecutionError("preflight_release_mismatch")
+        return preflight
+
+    def deploy_local_test(self, project_id, release_id, target, actor="system"):
+        self._require_project(project_id)
+        self._require_state("DEPLOYMENT_APPROVED")
+        if target != "local-test":
+            raise GovernedExecutionError("target_not_allowed")
+        if self.deployment_approval is None:
+            raise GovernedExecutionError("deployment_approval_gate_not_configured")
+        self._get_release(project_id, release_id, target)
+        self._require_preflight(project_id, release_id, target)
+        try:
+            self.deployment_approval.require_valid(project_id, release_id, target)
+        except Exception as exc:
+            raise GovernedExecutionError(str(exc)) from exc
+
+        artifact = self.data / f"{release_id}.local_test_artifact.txt"
+        content = f"ForgeOS local-test deployment\nrelease={release_id}\n"
+        artifact.write_text(content)
+        sha = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        rec = {
+            "schema": RECEIPT_SCHEMA,
+            "project_id": project_id,
+            "release_id": release_id,
+            "target": target,
+            "status": "EXECUTED",
+            "artifact": str(artifact),
+            "artifact_sha256": sha,
+            "timestamp": now(),
+            "actor": actor,
+        }
+        rec["receipt_digest"] = digest(rec)
+        receipts = _read(self.receipt_file, {"schema": RECEIPT_SCHEMA, "items": []})
+        receipts["items"].append(rec)
+        _write(self.receipt_file, receipts)
+        self._audit("DEPLOYMENT_EXECUTED", project_id, rec, actor)
+        self.deployment_approval.consume(project_id, release_id, target)
+        self._transition("DEPLOYED", actor)
+        return rec
+
+    def verify(self, project_id, receipt, actor="system"):
+        self._require_project(project_id)
+        self._require_state("DEPLOYED")
+        if receipt.get("schema") != RECEIPT_SCHEMA or receipt.get("status") != "EXECUTED":
+            raise GovernedExecutionError("invalid_receipt")

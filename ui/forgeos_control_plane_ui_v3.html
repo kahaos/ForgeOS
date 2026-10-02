@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KriLayer Control Plane v3</title>
+<style>
+:root{--bg:#080b12;--panel:#101621;--panel2:#151c28;--line:#263143;--text:#eef3fb;--muted:#8e9bb0;--accent:#78a9ff;--good:#55d6a0;--warn:#f4c76a;--bad:#ff7777;--info:#8fc8ff}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#080b12,#0b1019);color:var(--text);font:14px/1.45 Inter,system-ui,-apple-system,Segoe UI,sans-serif}button,input{font:inherit}button{cursor:pointer}.shell{max-width:1400px;margin:auto;padding:24px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:18px}.brand{display:flex;gap:12px;align-items:center}.mark{width:42px;height:42px;border:1px solid var(--line);border-radius:12px;display:grid;place-items:center;font-weight:800;color:var(--accent);background:#0d1420}.title{font-size:20px;font-weight:750}.sub{color:var(--muted);font-size:12px}.controls{display:flex;gap:8px;flex-wrap:wrap}.controls input{background:var(--panel);border:1px solid var(--line);color:var(--text);padding:9px 11px;border-radius:9px;min-width:260px}.btn{background:#182235;color:var(--text);border:1px solid var(--line);padding:9px 13px;border-radius:9px}.btn.primary{border-color:#4f79bd;background:#1a3155}.btn.danger{border-color:#784747;background:#351d1d}.statusbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}.pill{padding:7px 10px;border:1px solid var(--line);border-radius:999px;background:#0e141f;color:var(--muted)}.pill b{color:var(--text)}.grid{display:grid;grid-template-columns:1.5fr .9fr;gap:16px}.panel{background:rgba(16,22,33,.9);border:1px solid var(--line);border-radius:14px;overflow:hidden}.head{padding:15px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px}.head h2{font-size:14px;margin:0}.body{padding:16px}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.card{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:13px}.label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}.value{font-size:19px;font-weight:750;margin-top:4px}.patch{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px;background:#0d131e}.patch:last-child{margin-bottom:0}.patchtop{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.patchid{font-weight:750}.badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;border:1px solid var(--line);font-size:11px;font-weight:700}.READY{color:var(--info)}.EXECUTING,.VERIFYING{color:var(--warn)}.COMPLETED{color:var(--good)}.FAILED{color:var(--bad)}.BLOCKED{color:#ffb27d}.meta{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.chip{font-size:11px;color:var(--muted);background:#111927;border:1px solid var(--line);padding:4px 7px;border-radius:7px}.row{display:flex;justify-content:space-between;gap:10px;margin-top:10px}.muted{color:var(--muted)}.error{color:var(--bad);background:#241519;border:1px solid #593238;padding:10px;border-radius:9px;margin-top:12px}.audit{max-height:620px;overflow:auto}.event{padding:11px 0;border-bottom:1px solid #202a38}.event:last-child{border-bottom:0}.eventhead{display:flex;justify-content:space-between;gap:8px}.eventaction{font-weight:700}.time{color:var(--muted);font-size:11px}.mono{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#b7c5d8;white-space:pre-wrap;word-break:break-word}.empty{color:var(--muted);padding:18px;text-align:center}.wide{grid-column:1/-1}.evidence{margin-top:9px;padding:9px;border-radius:8px;background:#0b111a;border:1px solid #202a38}.footer{margin-top:16px;color:var(--muted);font-size:11px}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:6px}.dot.good{background:var(--good)}.dot.bad{background:var(--bad)}
+@media(max-width:900px){.grid{grid-template-columns:1fr}.cards{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.shell{padding:12px}.top{align-items:flex-start;flex-direction:column}.controls input{min-width:0;width:100%}.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div class="brand"><div class="mark">KL</div><div><div class="title">KriLayer Control Plane</div><div class="sub">ForgeOS-authoritative operator surface · v3</div></div></div>
+    <div class="controls"><input id="apiBase" aria-label="ForgeOS API base" placeholder="API base, e.g. http://127.0.0.1:8520"><button class="btn" id="saveBase">Connect</button><button class="btn" id="refresh">Refresh</button><button class="btn primary" id="executeAll">Run ready patches</button></div>
+  </header>
+
+  <div class="statusbar">
+    <div class="pill"><span id="connDot" class="dot"></span><b id="connection">CONNECTING</b></div>
+    <div class="pill">Target <b id="target">local-test</b></div>
+    <div class="pill">Project <b id="project">—</b></div>
+    <div class="pill">Plan <b id="planId">—</b></div>
+    <div class="pill">Authority <b>ForgeOS</b></div>
+  </div>
+
+  <div id="error" class="error" hidden></div>
+
+  <main class="grid">
+    <section class="panel wide">
+      <div class="head"><h2>Command Centre</h2><span class="muted" id="lastRefresh">—</span></div>
+      <div class="body">
+        <div class="cards">
+          <div class="card"><div class="label">Plan status</div><div class="value" id="planStatus">—</div></div>
+          <div class="card"><div class="label">Completed</div><div class="value" id="completedCount">0</div></div>
+          <div class="card"><div class="label">Active</div><div class="value" id="activeCount">0</div></div>
+          <div class="card"><div class="label">Blocked / failed</div><div class="value" id="blockedCount">0</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="head"><h2>Patch Plan</h2><span class="muted">authoritative state</span></div>
+      <div class="body" id="patches"><div class="empty">No plan loaded.</div></div>
+    </section>
+
+    <section class="panel">
+      <div class="head"><h2>Audit Trail</h2><span class="muted">ForgeOS events</span></div>
+      <div class="body audit" id="audit"><div class="empty">No audit events.</div></div>
+    </section>
+  </main>
+  <div class="footer">Frontend is presentation only. It does not manufacture status, evidence, authorization, or completion. ForgeOS remains authoritative.</div>
+</div>
+<script>
+const forgeos_authoritative = true;
+const TERMINAL = new Set(["COMPLETED","BLOCKED","ROLLED_BACK","ROLLBACK_FAILED"]);
+const state = { plan:null, audit:[], timer:null };
+const $ = id => document.getElementById(id);
+function apiBase(){ return ($("apiBase").value || window.localStorage.getItem("kl_forgeos_api") || "").replace(/\/$/,""); }
+function setError(msg){ const e=$("error"); e.textContent=msg||""; e.hidden=!msg; }
+function esc(v){ return String(v ?? "").replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+async function getJSON(path){ const r=await fetch(apiBase()+path,{cache:"no-store"}); const body=await r.json().catch(()=>({error:"invalid_json"})); if(!r.ok) throw new Error(body.error || `HTTP ${r.status}`); return body; }
+async function postJSON(path, body){ const r=await fetch(apiBase()+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); const data=await r.json().catch(()=>({error:"invalid_json"})); if(!r.ok) throw new Error(data.error || data.detail || `HTTP ${r.status}`); return data; }
+function renderStatus(){
+  const p=state.plan; if(!p){$("planStatus").textContent="EMPTY";return;}
+  $("target").textContent=(p.patches||[])[0]?.execution?.target || "local-test";
+  $("project").textContent=p.project_id||"—"; $("planId").textContent=p.plan_id||"—"; $("planStatus").textContent=p.status||"—";
+  const patches=p.patches||[];
+  $("completedCount").textContent=patches.filter(x=>x.status==="COMPLETED").length;
+  $("activeCount").textContent=patches.filter(x=>["EXECUTING","VERIFYING"].includes(x.status)).length;
+  $("blockedCount").textContent=patches.filter(x=>["BLOCKED","FAILED"].includes(x.status)).length;
+}
+function renderPatches(){
+  const root=$("patches"), patches=state.plan?.patches||[];
+  if(!patches.length){root.innerHTML='<div class="empty">No patch plan is currently loaded.</div>';return;}
+  root.innerHTML=patches.map(p=>{
+    const deps=(p.dependencies||[]).map(esc).join(", ")||"none";
+    const ex=p.execution||{}, verification=p.verification||{};
+    const evidence=(p.evidence||[]).map(e=>`<div class="evidence"><div><b>${esc(e.type||"evidence")}</b></div><div class="mono">digest: ${esc(e.digest||"—")}\npath: ${esc(e.path||"—")}</div></div>`).join("");
+    const receipt=p===state.plan.patches[state.plan.patches.length-1] ? state.plan.receipt : null;
+    const error=ex.error ? `<div class="error">${esc(ex.error)}</div>` : "";
+    const blocked=p.execution?.blocked_by ? `<div class="muted">Blocked by ${esc(p.execution.blocked_by)}</div>` : "";
+    const ready=p.status==="READY";
+    return `<article class="patch"><div class="patchtop"><div><div class="patchid">${esc(p.patch_id)}</div><div class="meta"><span class="chip">deps: ${deps}</span><span class="chip">handler: ${esc(ex.handler_id||"—")}</span><span class="chip">target: ${esc(ex.target||"local-test")}</span></div></div><span class="badge ${esc(p.status)}">${esc(p.status)}</span></div>${blocked}${error}<div class="row"><span class="muted">execution: ${esc(ex.started_at||"not started")}</span>${ready?`<button class="btn" onclick="executeOne('${encodeURIComponent(p.patch_id)}')">Execute patch</button>`:""}</div>${verification.ok!==undefined?`<div class="evidence"><b>Verification:</b> ${verification.ok?"PASS":"FAIL"}</div>`:""}${evidence}${receipt?`<div class="evidence"><b>Plan receipt</b><div class="mono">${esc(JSON.stringify(receipt,null,2))}</div></div>`:""}</article>`;
+  }).join("");
+}
+function renderAudit(){
+  const root=$("audit"), events=state.audit||[]; if(!events.length){root.innerHTML='<div class="empty">No audit events.</div>';return;}
+  root.innerHTML=[...events].reverse().map(e=>`<div class="event"><div class="eventhead"><span class="eventaction">${esc(e.action||"EVENT")}</span><span class="time">${esc(e.timestamp||e.created_at||"")}</span></div><div class="mono">${esc(JSON.stringify(e.extra||e,null,2))}</div></div>`).join("");
+}
+async function refresh(){
+  try{
+    const [plan,audit]=await Promise.all([getJSON("/api/patch-plan"),getJSON("/api/patch-plan/audit")]);
+    state.plan=plan; state.audit=audit.events||[]; renderStatus(); renderPatches(); renderAudit();
+    $("connection").textContent="CONNECTED"; $("connDot").className="dot good"; $("lastRefresh").textContent=new Date().toLocaleTimeString(); setError("");
+    schedulePoll();
+  }catch(e){ $("connection").textContent="OFFLINE"; $("connDot").className="dot bad"; setError(`ForgeOS API: ${e.message}`); schedulePoll(true); }
+}
+function schedulePoll(error=false){ clearTimeout(state.timer); state.timer=setTimeout(refresh,error?5000:2500); }
+async function executeAll(){
+  try{ await postJSON("/api/patch-plan/execute-all",{project_id:state.plan?.project_id,target:"local-test",actor:"human"}); await refresh(); }
+  catch(e){ setError(`Execution rejected: ${e.message}`); }
+}
+async function executeOne(encoded){
+  try{ await postJSON("/api/patch-plan/execute",{project_id:state.plan?.project_id,target:"local-test",patch_id:decodeURIComponent(encoded),actor:"human"}); await refresh(); }
+  catch(e){ setError(`Execution rejected: ${e.message}`); }
+}
+$("saveBase").onclick=()=>{window.localStorage.setItem("kl_forgeos_api",$("apiBase").value.trim());refresh();};
+$("refresh").onclick=refresh; $("executeAll").onclick=executeAll;
+$("apiBase").value=window.localStorage.getItem("kl_forgeos_api") || (window.location.protocol.startsWith("http")?window.location.origin:"");
+refresh();
+</script>
+</body>
+</html>
