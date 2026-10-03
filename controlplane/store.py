@@ -88,6 +88,9 @@ class ControlPlane:
         approval_id = "apr_" + uuid.uuid4().hex[:8]
         binding_id = "exec_" + uuid.uuid4().hex[:12]
         bound_executor = executor or self._execute
+        resolved_executor_id = executor_id or f"{tool}:{action}"
+        if executor_id is not None:
+            self.register_executor(executor_id, target)
         record = {
             "id": approval_id,
             "status": "pending",
@@ -98,7 +101,7 @@ class ControlPlane:
             "created_at": _now(),
             "reason": decision.reason,
             "execution_binding_id": binding_id,
-            "executor_id": executor_id or f"{tool}:{action}",
+            "executor_id": resolved_executor_id,
         }
         self.approvals[approval_id] = record
         self._approval_executors[approval_id] = bound_executor
