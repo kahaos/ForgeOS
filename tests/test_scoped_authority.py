@@ -23,14 +23,7 @@ def make_cp(tmp_path):
 
 def grant_builder(cp):
     task = cp.create_task("task-site", owner="human", purpose="Build website", expires_at=FUTURE)
-    grant = cp.issue_grant(
-        task_id=task.task_id,
-        agent_id="builder",
-        capability="GIT_PUSH",
-        scope={"tool": "git", "action": "push", "repository": "company/site", "branch": "feature/*"},
-        issued_by="human",
-        expires_at=FUTURE,
-    )
+    grant = cp.issue_grant(task.task_id, "builder", "GIT_PUSH", {"tool": "git", "action": "push", "repository": "company/site", "branch": "feature/*"}, "human", FUTURE)
     return task, grant
 
 
@@ -57,10 +50,8 @@ def test_scoped_request_allows_in_scope_without_human_approval(tmp_path):
 def test_wrong_repository_and_branch_are_denied(tmp_path):
     cp = make_cp(tmp_path)
     task, _ = grant_builder(cp)
-    wrong_repo = cp.request_scoped(task.task_id, "builder", "git", "push", "company/other", {"branch": "feature/home"})
-    wrong_branch = cp.request_scoped(task.task_id, "builder", "git", "push", "company/site", {"branch": "main"})
-    assert wrong_repo["verdict"] == "deny"
-    assert wrong_branch["verdict"] == "deny"
+    assert cp.request_scoped(task.task_id, "builder", "git", "push", "company/other", {"branch": "feature/home"})["verdict"] == "deny"
+    assert cp.request_scoped(task.task_id, "builder", "git", "push", "company/site", {"branch": "main"})["verdict"] == "deny"
 
 
 def test_expired_and_revoked_authority_denies(tmp_path):
@@ -68,50 +59,36 @@ def test_expired_and_revoked_authority_denies(tmp_path):
     task = cp.create_task("expired", "human", "expired", expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat())
     cp.tasks["expired"] = replace(task, status="expired")
     cp.issue_grant("expired", "builder", "GIT_PUSH", {"tool": "git", "action": "push", "repository": "company/site"}, "human", expires_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat())
-    result = cp.request_scoped("expired", "builder", "git", "push", "company/site", {})
-    assert result["verdict"] == "deny"
+    assert cp.request_scoped("expired", "builder", "git", "push", "company/site", {})["verdict"] == "deny"
 
     task, grant = grant_builder(cp)
     cp.revoke_grant(grant.grant_id, actor="human")
-    revoked = cp.request_scoped(task.task_id, "builder", "git", "push", "company/site", {"branch": "feature/x"})
-    assert revoked["verdict"] == "deny"
+    assert cp.request_scoped(task.task_id, "builder", "git", "push", "company/site", {"branch": "feature/x"})["verdict"] == "deny"
 
 
 def test_delegation_can_only_attenuate_scope_and_expiry(tmp_path):
     cp = make_cp(tmp_path)
     task, parent = grant_builder(cp)
-    child = cp.delegate_grant(
-        parent.grant_id,
-        child_agent_id="seo",
-        scope={"tool": "git", "action": "push", "repository": "company/site", "branch": "feature/seo"},
-        expires_at=(datetime.now(timezone.utc) + timedelta(minutes=20)).isoformat(),
-        issued_by="builder",
-    )
+    child = cp.delegate_grant(parent.grant_id, "seo", {"tool": "git", "action": "push", "repository": "company/site", "branch": "feature/seo"}, expires_at=(datetime.now(timezone.utc) + timedelta(minutes=20)).isoformat(), issued_by="builder")
     assert child.parent_grant_id == parent.grant_id
-    allowed = cp.request_scoped(task.task_id, "seo", "git", "push", "company/site", {"branch": "feature/seo"})
-    denied = cp.request_scoped(task.task_id, "seo", "git", "push", "company/site", {"branch": "feature/other"})
-    assert allowed["verdict"] == "allow"
-    assert denied["verdict"] == "deny"
+    assert cp.request_scoped(task.task_id, "seo", "git", "push", "company/site", {"branch": "feature/seo"})["verdict"] == "allow"
+    assert cp.request_scoped(task.task_id, "seo", "git", "push", "company/site", {"branch": "feature/other"})["verdict"] == "deny"
 
 
 def test_delegation_widening_is_rejected(tmp_path):
     cp = make_cp(tmp_path)
-    task, parent = grant_builder(cp)
+    _, parent = grant_builder(cp)
     with pytest.raises(ValueError, match="outside parent grant scope"):
-        cp.delegate_grant(
-            parent.grant_id,
-            child_agent_id="seo",
-            scope={"tool": "git", "action": "push", "repository": "company/site", "branch": "main"},
-            expires_at=FUTURE,
-            issued_by="builder",
-        )
+        cp.delegate_grant(parent.grant_id, "seo", {"tool": "git", "action": "push", "repository": "company/site", "branch": "main"}, FUTURE, "builder")
 
 
-def test_self_grant_is_rejected(tmp_path):
+def test_self_grant_and_direct_agent_grant_are_rejected(tmp_path):
     cp = make_cp(tmp_path)
     cp.create_task("self", "human", "self grant", expires_at=FUTURE)
     with pytest.raises(ValueError, match="cannot self-grant"):
-        cp.issue_grant("self", "builder", "GIT_PUSH", {"tool": "git", "action": "push", "repository": "company/site"}, "builder", expires_at=FUTURE)
+        cp.issue_grant("self", "builder", "GIT_PUSH", {"tool": "git", "action": "push", "repository": "company/site"}, "builder", FUTURE)
+    with pytest.raises(ValueError, match="cannot issue grants directly"):
+        cp.issue_grant("self", "seo", "GIT_PUSH", {"tool": "git", "action": "push", "repository": "company/site"}, "builder", FUTURE)
 
 
 def test_task_and_grant_persist_across_restart(tmp_path):
@@ -120,5 +97,4 @@ def test_task_and_grant_persist_across_restart(tmp_path):
     restarted = ControlPlane(tmp_path / "controlplane")
     assert restarted.tasks[task.task_id].purpose == "Build website"
     assert restarted.grants[grant.grant_id].agent_id == "builder"
-    result = restarted.request_scoped(task.task_id, "builder", "git", "push", "company/site", {"branch": "feature/restart"})
-    assert result["verdict"] == "allow"
+    assert restarted.request_scoped(task.task_id, "builder", "git", "push", "company/site", {"branch": "feature/restart"})["verdict"] == "allow"
