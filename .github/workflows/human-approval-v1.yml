@@ -1,0 +1,22 @@
+name: Human Approval v1
+
+on:
+  push:
+    branches:
+      - human-approval-v1
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest
+      - name: Run Human Approval v1 tests
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest tests/test_controlplane_execution.py tests/test_controlplane_approval.py tests/test_gemini_adapter.py tests/test_gemini_approval.py -q

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from .models import ActionRequest, Agent, Decision
 
+POLICY_VERSION = "controlplane-1.0"
+
 REQUIRED = {
     ("filesystem", "read"): "FS_READ",
     ("filesystem", "write"): "FS_WRITE",

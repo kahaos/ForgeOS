@@ -6,7 +6,11 @@ from controlplane.gemini_adapter import GeminiForgeOSAdapter
 
 def make_adapter(tmp_path: Path) -> GeminiForgeOSAdapter:
     cp = ControlPlane(tmp_path / "controlplane")
-    cp.register("gemini-test-agent-01", owner="gemini", capabilities=["FS_READ", "FS_WRITE", "SHELL"])
+    cp.register(
+        "gemini-test-agent-01",
+        owner="gemini",
+        capabilities=["FS_READ", "FS_WRITE", "SHELL", "GIT_PUSH"],
+    )
     return GeminiForgeOSAdapter(cp, "gemini-test-agent-01", tmp_path / "workspace")
 
 
