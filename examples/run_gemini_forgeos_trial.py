@@ -1,9 +1,10 @@
 """Build and launch a deliberately constrained Gemini CLI trial for ForgeOS.
 
 The harness prepares a disposable workspace with one ForgeOS MCP server and an
-explicit MCP tool allowlist. No provider credentials are embedded in Gemini
-settings. The runner can prepare the environment without launching Gemini, or
-launch the real CLI using the isolated trial state.
+explicit MCP tool allowlist. Provider credentials are never written to Gemini
+settings or command arguments. By default, credentials are stripped from the
+trial environment; API-key authentication is available only through an
+explicit operator opt-in.
 """
 
 from __future__ import annotations
@@ -31,13 +32,14 @@ TRIAL_TASK_ID = "real-agent-website-build"
 TRIAL_AGENT_ID = "website-agent"
 DEFAULT_TRIAL_ROOT = Path("/opt/forgeos/gemini-controlplane-trial")
 
-# Provider credentials must not be inherited from the operator shell into the
-# disposable trial. OAuth state is kept in the isolated Gemini home instead.
+# Provider credentials must not be inherited from the operator shell unless
+# the operator explicitly selects an authentication mode for this trial.
 PROVIDER_CREDENTIAL_ENV_VARS = {
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
     "GOOGLE_APPLICATION_CREDENTIALS",
 }
+SUPPORTED_PROVIDER_AUTHS = {"gemini-api-key"}
 
 
 @dataclass(frozen=True)
@@ -52,10 +54,29 @@ class TrialPaths:
     settings: Path
 
 
-def build_gemini_settings(workspace: str | Path, server_script: str) -> dict[str, Any]:
+def _validate_provider_auth(provider_auth: str | None) -> None:
+    if provider_auth is not None and provider_auth not in SUPPORTED_PROVIDER_AUTHS:
+        supported = ", ".join(sorted(SUPPORTED_PROVIDER_AUTHS))
+        raise ValueError(f"unsupported provider auth {provider_auth!r}; supported: {supported}")
+
+
+def build_gemini_settings(
+    workspace: str | Path,
+    server_script: str,
+    *,
+    provider_auth: str | None = None,
+) -> dict[str, Any]:
     """Return the minimal Gemini settings needed for a ForgeOS-only trial."""
+    _validate_provider_auth(provider_auth)
     workspace_path = Path(workspace).resolve()
     root = workspace_path.parent
+    security: dict[str, Any] = {
+        "disableYoloMode": True,
+        "disableAlwaysAllow": True,
+    }
+    if provider_auth is not None:
+        security["auth"] = {"selectedType": provider_auth}
+
     return {
         "mcp": {"allowed": ["forgeos"]},
         "mcpServers": {
@@ -78,10 +99,7 @@ def build_gemini_settings(workspace: str | Path, server_script: str) -> dict[str
             }
         },
         "tools": {"core": []},
-        "security": {
-            "disableYoloMode": True,
-            "disableAlwaysAllow": True,
-        },
+        "security": security,
         "general": {"defaultApprovalMode": "default"},
         "privacy": {"usageStatisticsEnabled": False},
     }
@@ -97,21 +115,40 @@ def build_gemini_environment(root: str | Path) -> dict[str, str]:
     }
 
 
-def write_gemini_settings(root: str | Path, server_script: str) -> Path:
+def write_gemini_settings(
+    root: str | Path,
+    server_script: str,
+    *,
+    provider_auth: str | None = None,
+) -> Path:
     """Write the trial's project settings and return their path."""
     root = Path(root).resolve()
     workspace = root / "workspace"
     settings_path = workspace / ".gemini" / "settings.json"
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(
-        json.dumps(build_gemini_settings(workspace, server_script), indent=2) + "\n",
+        json.dumps(
+            build_gemini_settings(
+                workspace,
+                str(Path(server_script).resolve()),
+                provider_auth=provider_auth,
+            ),
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
     )
     return settings_path
 
 
-def prepare_trial(root: str | Path, server_script: str) -> TrialPaths:
+def prepare_trial(
+    root: str | Path,
+    server_script: str,
+    *,
+    provider_auth: str | None = None,
+) -> TrialPaths:
     """Create and configure the complete disposable Gemini trial runtime."""
+    _validate_provider_auth(provider_auth)
     root = Path(root).resolve()
     workspace = root / "workspace"
     state = root / "state"
@@ -121,7 +158,11 @@ def prepare_trial(root: str | Path, server_script: str) -> TrialPaths:
     for path in (workspace, state, home, gemini_home):
         path.mkdir(parents=True, exist_ok=True)
 
-    settings = write_gemini_settings(root, str(Path(server_script).resolve()))
+    settings = write_gemini_settings(
+        root,
+        str(Path(server_script).resolve()),
+        provider_auth=provider_auth,
+    )
     return TrialPaths(
         root=root,
         workspace=workspace,
@@ -191,12 +232,34 @@ def build_gemini_command(workspace: str | Path, prompt: str) -> list[str]:
     ]
 
 
-def build_trial_environment(root: str | Path) -> dict[str, str]:
-    """Build the process environment for Gemini without provider credentials."""
+def build_trial_environment(
+    root: str | Path,
+    *,
+    provider_auth: str | None = None,
+) -> dict[str, str]:
+    """Build Gemini's environment with credentials stripped by default.
+
+    The only supported explicit credential mode is ``gemini-api-key``. In that
+    mode the key must already exist in the operator environment; it is passed
+    only to the Gemini subprocess and is never written to trial files or CLI
+    arguments.
+    """
+    _validate_provider_auth(provider_auth)
     environment = os.environ.copy()
-    for name in PROVIDER_CREDENTIAL_ENV_VARS:
-        environment.pop(name, None)
+    provider_values = {
+        name: environment.pop(name, None) for name in PROVIDER_CREDENTIAL_ENV_VARS
+    }
     environment.update(build_gemini_environment(root))
+
+    if provider_auth == "gemini-api-key":
+        api_key = provider_values["GEMINI_API_KEY"]
+        if not api_key:
+            raise RuntimeError(
+                "GEMINI_API_KEY must be present in the operator environment "
+                "when --provider-auth gemini-api-key is selected"
+            )
+        environment["GEMINI_API_KEY"] = api_key
+
     return environment
 
 
@@ -215,6 +278,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="ForgeOS MCP server script",
     )
     parser.add_argument(
+        "--provider-auth",
+        choices=("none", "gemini-api-key"),
+        default="none",
+        help="Explicit provider authentication mode (default: none)",
+    )
+    parser.add_argument(
         "--prepare-only",
         action="store_true",
         help="Prepare and validate the trial without launching Gemini",
@@ -225,7 +294,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     """Prepare the disposable trial and optionally launch Gemini."""
     args = _parse_args(argv)
-    paths = prepare_trial(args.trial_root, str(args.server_script))
+    provider_auth = None if args.provider_auth == "none" else args.provider_auth
+    paths = prepare_trial(
+        args.trial_root,
+        str(args.server_script),
+        provider_auth=provider_auth,
+    )
     prompt = build_trial_prompt(paths.workspace)
     command = build_gemini_command(paths.workspace, prompt)
 
@@ -235,6 +309,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"SETTINGS: {paths.settings}")
     print(f"MCP SERVER: {args.server_script.resolve()}")
     print(f"TOOLS: {', '.join(FORGEOS_TOOLS)}")
+    print(f"PROVIDER AUTH: {args.provider_auth}")
 
     if args.prepare_only:
         print("STATUS: READY")
@@ -245,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
         completed = subprocess.run(
             command,
             cwd=paths.workspace,
-            env=build_trial_environment(paths.root),
+            env=build_trial_environment(paths.root, provider_auth=provider_auth),
             check=False,
         )
     except FileNotFoundError as exc:
@@ -254,6 +329,9 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Gemini trial interrupted.", file=sys.stderr)
         return 130
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
     print(f"GEMINI EXIT CODE: {completed.returncode}")
     return completed.returncode
@@ -262,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
 __all__ = [
     "DEFAULT_TRIAL_ROOT",
     "FORGEOS_TOOLS",
+    "SUPPORTED_PROVIDER_AUTHS",
     "TRIAL_AGENT_ID",
     "TRIAL_TASK_ID",
     "TrialPaths",
