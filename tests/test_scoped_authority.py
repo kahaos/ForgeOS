@@ -57,8 +57,8 @@ def test_wrong_repository_and_branch_are_denied(tmp_path):
 def test_expired_and_revoked_authority_denies(tmp_path):
     cp = make_cp(tmp_path)
     task = cp.create_task("expired", "human", "expired", expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat())
-    cp.tasks["expired"] = replace(task, status="expired")
     cp.issue_grant("expired", "builder", "GIT_PUSH", {"tool": "git", "action": "push", "repository": "company/site"}, "human", expires_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat())
+    cp.tasks["expired"] = replace(task, status="expired")
     assert cp.request_scoped("expired", "builder", "git", "push", "company/site", {})["verdict"] == "deny"
 
     task, grant = grant_builder(cp)
