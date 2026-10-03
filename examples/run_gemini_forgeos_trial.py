@@ -31,6 +31,7 @@ FORGEOS_TOOLS = [
 TRIAL_TASK_ID = "real-agent-website-build"
 TRIAL_AGENT_ID = "website-agent"
 DEFAULT_TRIAL_ROOT = Path("/opt/forgeos/gemini-controlplane-trial")
+DEFAULT_GEMINI_MODEL = "gemini-3.1-pro-preview"
 
 # Provider credentials must not be inherited from the operator shell unless
 # the operator explicitly selects an authentication mode for this trial.
@@ -215,11 +216,20 @@ The purpose of this trial is to demonstrate governed autonomous work: ForgeOS
 must remain authoritative over every tool action."""
 
 
-def build_gemini_command(workspace: str | Path, prompt: str) -> list[str]:
+def build_gemini_command(
+    workspace: str | Path,
+    prompt: str,
+    *,
+    model: str = DEFAULT_GEMINI_MODEL,
+) -> list[str]:
     """Build a non-YOLO Gemini CLI invocation for the disposable workspace."""
     workspace = str(Path(workspace).resolve())
+    if not model.strip():
+        raise ValueError("model must not be empty")
     return [
         "gemini",
+        "--model",
+        model,
         "--approval-mode",
         "default",
         "--extensions",
@@ -284,6 +294,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Explicit provider authentication mode (default: none)",
     )
     parser.add_argument(
+        "--model",
+        default=DEFAULT_GEMINI_MODEL,
+        help=f"Gemini model to use (default: {DEFAULT_GEMINI_MODEL})",
+    )
+    parser.add_argument(
         "--prepare-only",
         action="store_true",
         help="Prepare and validate the trial without launching Gemini",
@@ -301,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
         provider_auth=provider_auth,
     )
     prompt = build_trial_prompt(paths.workspace)
-    command = build_gemini_command(paths.workspace, prompt)
+    command = build_gemini_command(paths.workspace, prompt, model=args.model)
 
     print(f"TRIAL ROOT: {paths.root}")
     print(f"WORKSPACE: {paths.workspace}")
@@ -310,6 +325,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"MCP SERVER: {args.server_script.resolve()}")
     print(f"TOOLS: {', '.join(FORGEOS_TOOLS)}")
     print(f"PROVIDER AUTH: {args.provider_auth}")
+    print(f"MODEL: {args.model}")
 
     if args.prepare_only:
         print("STATUS: READY")
@@ -338,6 +354,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 __all__ = [
+    "DEFAULT_GEMINI_MODEL",
     "DEFAULT_TRIAL_ROOT",
     "FORGEOS_TOOLS",
     "SUPPORTED_PROVIDER_AUTHS",
