@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from examples.run_gemini_forgeos_trial import (
+    DEFAULT_GEMINI_MODEL,
     FORGEOS_TOOLS,
     build_gemini_settings,
     build_gemini_command,
@@ -51,13 +52,19 @@ def test_gemini_api_key_auth_is_explicitly_selected(tmp_path: Path) -> None:
     assert settings["security"]["auth"]["selectedType"] == "gemini-api-key"
 
 
-def test_gemini_command_uses_isolated_home_and_no_yolo(tmp_path: Path) -> None:
+def test_gemini_command_uses_supported_model_and_no_yolo(tmp_path: Path) -> None:
     command = build_gemini_command(tmp_path, "Build the trial website")
 
     assert command[0] == "gemini"
     assert "--yolo" not in command
+    assert command[command.index("--model") + 1] == DEFAULT_GEMINI_MODEL
     assert "--approval-mode" in command
     assert "default" in command
+
+
+def test_gemini_command_rejects_empty_model(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="model"):
+        build_gemini_command(tmp_path, "Build the trial website", model=" ")
 
 
 def test_prepare_trial_creates_complete_isolated_runtime(tmp_path: Path) -> None:
