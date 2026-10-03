@@ -84,12 +84,15 @@ class ExecutionAuthorizer:
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
 
-        if self.controlplane._approval_executors.get(approval_id) is None:
+        binding = self.controlplane.executors.get(executor_id)
+        if binding is None:
             raise ValueError("executor binding unavailable")
         if record.get("executor_id") != executor_id:
             raise ValueError("executor binding mismatch")
-
         request = ActionRequest(**record["request"])
+        if binding.get("target") != request.target:
+            raise ValueError("executor target mismatch")
+
         snapshot = record["agent_snapshot"]
         issued = self.clock().astimezone(timezone.utc)
         expires = issued + timedelta(seconds=self.ttl_seconds)
@@ -130,19 +133,16 @@ class ExecutionWorker:
         self.key = bytes(key)
         self.clock = clock or _now
         self.executors: dict[str, tuple[str, Executor]] = {}
-        self._consumed: set[str] = set()
 
     def register_executor(self, executor_id: str, target: str, executor: Executor) -> None:
         if not executor_id or not target:
             raise ValueError("executor_id and target are required")
+        self.controlplane.register_executor(executor_id, target)
         self.executors[executor_id] = (target, executor)
 
     def execute(self, authorization: ExecutionAuthorization) -> dict[str, Any]:
         self._verify_signature(authorization)
         self._verify_time(authorization)
-
-        if authorization.nonce in self._consumed:
-            raise ValueError("authorization already consumed")
 
         record = self.controlplane.approvals.get(authorization.approval_id)
         if not record or record.get("status") != "approved":
@@ -175,13 +175,10 @@ class ExecutionWorker:
         if registered_target != authorization.target:
             raise ValueError("executor target mismatch")
 
-        self._consumed.add(authorization.nonce)
-        try:
-            result = executor(request)
-        except Exception:
-            self._consumed.discard(authorization.nonce)
-            raise
+        if not self.controlplane.consume_execution_nonce(authorization.nonce):
+            raise ValueError("authorization already consumed")
 
+        result = executor(request)
         self.controlplane.complete_approved_execution(authorization.approval_id, result)
         return result
 
