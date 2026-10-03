@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from .approval import agent_snapshot, request_digest
@@ -29,16 +30,7 @@ class RuntimeGateway:
         self.worker.register_executor(executor_id, target, adapter)
         self.adapters[executor_id] = (target, adapter)
 
-    def request(
-        self,
-        task_id: str,
-        agent_id: str,
-        tool: str,
-        action: str,
-        target: str,
-        detail: dict[str, Any] | None = None,
-        executor_id: str | None = None,
-    ) -> dict[str, Any]:
+    def request(self, task_id: str, agent_id: str, tool: str, action: str, target: str, detail: dict[str, Any] | None = None, executor_id: str | None = None) -> dict[str, Any]:
         request = ActionRequest(agent_id, tool, action, target, detail or {})
         agent = self.controlplane.agents.get(agent_id)
         task = self.controlplane.tasks.get(task_id)
@@ -58,14 +50,11 @@ class RuntimeGateway:
             return {"verdict": "deny", "reason": "executor target mismatch", "task_id": task_id, "grant_id": decision.grant_id}
 
         if decision.verdict == "ask":
-            return self.controlplane.request_scoped(
-                task_id, agent_id, tool, action, target, detail,
-                executor=adapter, executor_id=resolved_executor_id,
-            )
+            return self.controlplane.request_scoped(task_id, agent_id, tool, action, target, detail, executor=adapter, executor_id=resolved_executor_id)
 
-        # Auto-approved work still receives a short-lived signed authorization.
         grant = self.controlplane.grants[decision.grant_id]
         approval_id = "auto_" + uuid.uuid4().hex[:12]
+        timestamp = datetime.now(timezone.utc).isoformat()
         record = {
             "id": approval_id,
             "status": "approved",
@@ -76,15 +65,13 @@ class RuntimeGateway:
             "task_id": task_id,
             "grant_id": grant.grant_id,
             "grant_snapshot": grant.to_dict(),
-            "created_at": self.controlplane._now() if hasattr(self.controlplane, "_now") else None,
+            "created_at": timestamp,
             "reason": decision.reason,
             "actor": "policy",
-            "decided_at": self.controlplane._now() if hasattr(self.controlplane, "_now") else None,
+            "decided_at": timestamp,
             "execution_binding_id": "exec_" + uuid.uuid4().hex[:12],
             "executor_id": resolved_executor_id,
         }
-        record["created_at"] = record["created_at"] or __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
-        record["decided_at"] = record["decided_at"] or record["created_at"]
         self.controlplane.approvals[approval_id] = record
         self.controlplane._approval_executors[approval_id] = adapter
         self.controlplane._save()
@@ -92,14 +79,7 @@ class RuntimeGateway:
 
         authorization = self.authorizer.issue(approval_id, resolved_executor_id)
         result = self.worker.execute(authorization)
-        return {
-            "verdict": "allow",
-            "reason": decision.reason,
-            "task_id": task_id,
-            "grant_id": grant.grant_id,
-            "authorization": authorization.to_dict(),
-            "result": result,
-        }
+        return {"verdict": "allow", "reason": decision.reason, "task_id": task_id, "grant_id": grant.grant_id, "authorization": authorization.to_dict(), "result": result}
 
 
 class SimulatedToolAdapter:
