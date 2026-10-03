@@ -23,8 +23,9 @@ def test_write_gemini_settings_creates_only_forgeos_mcp(tmp_path: Path) -> None:
     settings_path = write_gemini_settings(tmp_path, "forgeos_mcp_server.py")
 
     settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    server = settings["mcpServers"]["forgeos"]
     assert settings["mcp"]["allowed"] == ["forgeos"]
-    assert settings["mcpServers"]["forgeos"]["includeTools"] == [
+    assert server["includeTools"] == [
         "read_file",
         "write_file",
         "run_test",
@@ -33,7 +34,18 @@ def test_write_gemini_settings_creates_only_forgeos_mcp(tmp_path: Path) -> None:
         "git_push",
         "request_action",
     ]
-    assert settings["mcpServers"]["forgeos"]["trust"] is True
+    assert server["trust"] is True
+    assert server["args"] == [
+        "forgeos_mcp_server.py",
+        "--workspace",
+        str((tmp_path / "workspace").resolve()),
+        "--state-dir",
+        str((tmp_path / "state").resolve()),
+        "--task-id",
+        "real-agent-website-build",
+        "--agent-id",
+        "website-agent",
+    ]
     assert settings["tools"]["core"] == []
     assert settings["security"]["disableYoloMode"] is True
     assert settings["security"]["disableAlwaysAllow"] is True
