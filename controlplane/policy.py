@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Sequence
 
-from .authority import CapabilityGrant, Task
+from .authority import CapabilityGrant, Task, resolve_workspace_path
 from .models import ActionRequest, Agent, Decision
 
 POLICY_VERSION = "controlplane-1.0"
@@ -63,6 +63,20 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _filesystem_path_error(request: ActionRequest) -> str | None:
+    """Return a policy denial reason if a filesystem path escapes its workspace."""
+    if request.tool != "filesystem" or request.action not in {"read", "write"}:
+        return None
+    detail = request.detail or {}
+    workspace = str(detail.get("workspace", ""))
+    relative = detail.get("name" if request.action == "write" else "path", "")
+    try:
+        resolve_workspace_path(workspace, str(relative))
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
 def evaluate_scoped(agent: Agent, task: Task | None, grants: Sequence[CapabilityGrant], request: ActionRequest) -> object:
     from .authority import AuthorityDecision
 
@@ -78,6 +92,10 @@ def evaluate_scoped(agent: Agent, task: Task | None, grants: Sequence[Capability
         return AuthorityDecision("deny", f"unknown action {request.tool}.{request.action}", request, task_id=task.task_id)
     if (request.tool, request.action) in HARD_DENY:
         return AuthorityDecision("deny", f"{needed} is hard-denied by policy", request, task_id=task.task_id)
+
+    filesystem_path_error = _filesystem_path_error(request)
+    if filesystem_path_error is not None:
+        return AuthorityDecision("deny", filesystem_path_error, request, task_id=task.task_id)
 
     matching = [g for g in grants if g.capability == needed and g.policy_version == POLICY_VERSION and g.active(_now()) and g.scope.matches(request)]
     if not matching:
