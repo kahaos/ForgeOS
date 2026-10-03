@@ -71,6 +71,7 @@ class ControlPlane:
 
         approval_id = "apr_" + uuid.uuid4().hex[:8]
         binding_id = "exec_" + uuid.uuid4().hex[:12]
+        bound_executor = executor or self._execute
         record = {
             "id": approval_id,
             "status": "pending",
@@ -83,13 +84,9 @@ class ControlPlane:
             "execution_binding_id": binding_id,
         }
         self.approvals[approval_id] = record
-        if executor is not None:
-            self._approval_executors[approval_id] = executor
+        self._approval_executors[approval_id] = bound_executor
         self._save()
-        event = self.evidence.append(
-            "approval.requested",
-            self._evidence_payload(record),
-        )
+        event = self.evidence.append("approval.requested", self._evidence_payload(record))
         return {
             "verdict": "ask",
             "reason": decision.reason,
@@ -184,7 +181,7 @@ class ControlPlane:
         if record["policy_version"] != POLICY_VERSION:
             raise ValueError("approval policy version mismatch")
 
-        if record["execution_binding_id"].startswith("exec_") is False:
+        if not str(record.get("execution_binding_id", "")).startswith("exec_"):
             raise ValueError("approval execution binding mismatch")
 
     @staticmethod
