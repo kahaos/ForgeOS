@@ -52,7 +52,7 @@ def make_worker(cp, calls):
 
 def make_docker_worker(cp, calls, tmp_path):
     workspace = tmp_path / "docker-workspace"
-    workspace.mkdir()
+    workspace.mkdir(exist_ok=True)
 
     class FakeDockerWorker:
         def run(self, command, workspace):
