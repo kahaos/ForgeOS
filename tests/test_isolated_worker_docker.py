@@ -10,9 +10,6 @@ import pytest
 from controlplane.isolated_worker import DockerIsolatedWorker
 
 
-pytestmark = pytest.mark.docker
-
-
 def _docker_available() -> bool:
     if os.environ.get("FORGEOS_DOCKER_TESTS") != "1":
         return False
