@@ -9,7 +9,7 @@ from controlplane.store import ControlPlane
 def test_task_grant_and_graph_endpoints(tmp_path):
     cp = ControlPlane(tmp_path / "controlplane")
     cp.register("builder", "human", ["GIT_PUSH"])
-    api = ApprovalAPI(cp)
+    api = ApprovalAPI(cp, operator_id="human")
     expiry = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
 
     status, task = api.handle("POST", "/tasks", {"task_id": "site", "owner": "human", "purpose": "Build site", "expires_at": expiry})
@@ -29,7 +29,7 @@ def test_task_grant_and_graph_endpoints(tmp_path):
 def test_scoped_request_endpoint_enforces_scope(tmp_path):
     cp = ControlPlane(tmp_path / "controlplane")
     cp.register("builder", "human", ["GIT_PUSH"])
-    api = ApprovalAPI(cp)
+    api = ApprovalAPI(cp, operator_id="human")
     expiry = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
     api.handle("POST", "/tasks", {"task_id": "site", "owner": "human", "purpose": "Build site", "expires_at": expiry})
     api.handle("POST", "/tasks/site/grants", {"agent_id": "builder", "capability": "GIT_PUSH", "scope": {"tool": "git", "action": "push", "repository": "company/site", "branch": "feature/*"}, "issued_by": "human", "expires_at": expiry})
@@ -46,9 +46,9 @@ def test_scoped_request_endpoint_enforces_scope(tmp_path):
 def test_clients_cannot_self_grant(tmp_path):
     cp = ControlPlane(tmp_path / "controlplane")
     cp.register("builder", "human", ["GIT_PUSH"])
-    api = ApprovalAPI(cp)
+    api = ApprovalAPI(cp, operator_id="human")
     expiry = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
     api.handle("POST", "/tasks", {"task_id": "site", "owner": "human", "purpose": "Build site", "expires_at": expiry})
     status, body = api.handle("POST", "/tasks/site/grants", {"agent_id": "builder", "capability": "GIT_PUSH", "scope": {"tool": "git", "action": "push", "repository": "company/site"}, "issued_by": "builder", "expires_at": expiry})
     assert status == 409
-    assert body["error"] == "grant rejected"
+    assert body["error"] == "grant issuer mismatch"

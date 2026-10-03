@@ -11,8 +11,9 @@ from .store import ControlPlane
 class ApprovalAPI:
     """Translate API requests into the single ControlPlane authority lifecycle."""
 
-    def __init__(self, controlplane: ControlPlane) -> None:
+    def __init__(self, controlplane: ControlPlane, operator_id: str | None = None) -> None:
         self.controlplane = controlplane
+        self.operator_id = operator_id
 
     def handle(self, method: str, path: str, body: dict[str, Any] | None = None) -> tuple[int, dict[str, Any] | list[dict[str, Any]]]:
         method = method.upper()
@@ -92,17 +93,23 @@ class ApprovalAPI:
             return (200, task.to_dict()) if task else (404, {"error": "task not found"})
         if len(parts) == 2 and parts[1] == "revoke" and method == "POST":
             try:
-                return 200, self.controlplane.revoke_task(parts[0], payload.get("actor", "human")).to_dict()
+                actor = self.operator_id if self.operator_id is not None else payload.get("actor", "human")
+                return 200, self.controlplane.revoke_task(parts[0], actor).to_dict()
             except KeyError:
                 return 404, {"error": "task not found"}
         if len(parts) == 2 and parts[1] == "grants" and method == "GET":
             return 200, [g.to_dict() for g in self.controlplane.grants.values() if g.task_id == parts[0]]
         if len(parts) == 2 and parts[1] == "grants" and method == "POST":
-            required = ("agent_id", "capability", "scope", "issued_by", "expires_at")
+            required = ("agent_id", "capability", "scope", "expires_at")
             if not isinstance(payload, dict) or any(k not in payload for k in required):
                 return 400, {"error": "invalid request"}
+            if self.operator_id is None:
+                return 401, {"error": "authenticated operator required"}
+            client_issuer = payload.get("issued_by")
+            if client_issuer is not None and client_issuer != self.operator_id:
+                return 409, {"error": "grant issuer mismatch"}
             try:
-                grant = self.controlplane.issue_grant(parts[0], payload["agent_id"], payload["capability"], payload["scope"], payload["issued_by"], payload["expires_at"], payload.get("parent_grant_id"))
+                grant = self.controlplane.issue_grant(parts[0], payload["agent_id"], payload["capability"], payload["scope"], self.operator_id, payload["expires_at"], payload.get("parent_grant_id"))
             except (KeyError, ValueError):
                 return 409, {"error": "grant rejected"}
             return 201, grant.to_dict()
@@ -131,14 +138,22 @@ class ApprovalAPI:
     def _decide(self, approval_id: str, decision: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         if not isinstance(payload, dict):
             return 400, {"error": "invalid request"}
-        actor = payload.get("actor", "human")
-        if not isinstance(actor, str) or not actor:
-            return 400, {"error": "invalid request"}
         record = self.controlplane.approvals.get(approval_id)
         if record is None:
             return 404, {"error": "approval not found"}
         if record.get("status") != "pending":
             return 409, {"error": "no pending approval"}
+        if record.get("task_id") is not None:
+            if self.operator_id is None:
+                return 401, {"error": "authenticated operator required"}
+            actor = self.operator_id
+            client_actor = payload.get("actor")
+            if client_actor is not None and client_actor != self.operator_id:
+                return 409, {"error": "approval actor mismatch"}
+        else:
+            actor = payload.get("actor", "human")
+            if not isinstance(actor, str) or not actor:
+                return 400, {"error": "invalid request"}
         try:
             result = self.controlplane.decide(approval_id, approve=decision == "approve", actor=actor, execute=False)
         except (KeyError, ValueError):

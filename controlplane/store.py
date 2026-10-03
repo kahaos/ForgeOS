@@ -130,6 +130,8 @@ class ControlPlane:
         return [g for g in self.grants.values() if g.task_id == task_id and g.agent_id == agent_id and g.active()]
 
     def request_scoped(self, task_id: str, agent_id: str, tool: str, action: str, target: str = "", detail: dict[str, Any] | None = None, executor: Executor | None = None, executor_id: str | None = None) -> dict[str, Any]:
+        if executor is not None:
+            raise ValueError("scoped execution must use RuntimeGateway")
         req = ActionRequest(agent_id, tool, action, target, detail or {})
         agent = self.agents.get(agent_id)
         task = self.tasks.get(task_id)
@@ -140,9 +142,8 @@ class ControlPlane:
             return self._scoped_denial(req, decision.reason, task_id)
         grant_id = decision.grant_id
         if decision.verdict == "allow":
-            result = executor(req) if executor else self._execute(req)
-            event = self.evidence.append("scoped.action.allowed", {"task_id": task_id, "grant_id": grant_id, "request": req.to_dict(), "result": result, "reason": decision.reason})
-            return {"verdict": "allow", "reason": decision.reason, "grant_id": grant_id, "task_id": task_id, "result": result, "evidence": event["digest"]}
+            event = self.evidence.append("scoped.action.allowed", {"task_id": task_id, "grant_id": grant_id, "request": req.to_dict(), "reason": decision.reason})
+            return {"verdict": "allow", "reason": decision.reason, "grant_id": grant_id, "task_id": task_id, "evidence": event["digest"]}
         approval_id = "apr_" + uuid.uuid4().hex[:8]
         binding_id = "exec_" + uuid.uuid4().hex[:12]
         resolved_executor_id = executor_id or f"{tool}:{action}"
@@ -150,7 +151,6 @@ class ControlPlane:
             self.register_executor(executor_id, target)
         record = {"id": approval_id, "status": "pending", "request": req.to_dict(), "request_digest": request_digest(req), "agent_snapshot": agent_snapshot(agent), "policy_version": POLICY_VERSION, "task_id": task_id, "grant_id": grant_id, "grant_snapshot": self.grants[grant_id].to_dict() if grant_id else None, "created_at": _now(), "reason": decision.reason, "execution_binding_id": binding_id, "executor_id": resolved_executor_id}
         self.approvals[approval_id] = record
-        self._approval_executors[approval_id] = executor or self._execute
         self._save()
         event = self.evidence.append("scoped.approval.requested", self._evidence_payload(record))
         return {"verdict": "ask", "reason": decision.reason, "approval_id": approval_id, "request_digest": record["request_digest"], "task_id": task_id, "grant_id": grant_id, "evidence": event["digest"]}
@@ -202,6 +202,12 @@ class ControlPlane:
         if not record or record["status"] != "pending":
             raise KeyError(f"no pending approval {approval_id}")
         self._validate_binding(record)
+        scoped = record.get("task_id") is not None
+        if scoped:
+            if executor is not None:
+                raise ValueError("scoped approval must execute through RuntimeGateway")
+            if approve and execute:
+                raise ValueError("scoped approval must execute through RuntimeGateway")
         bound_executor = self._approval_executors.get(approval_id)
         if executor is not None and bound_executor is not executor:
             raise ValueError("executor binding mismatch")

@@ -45,12 +45,20 @@ class RuntimeGateway:
         adapter_entry = self.adapters.get(resolved_executor_id)
         if adapter_entry is None:
             return {"verdict": "deny", "reason": "unknown executor", "task_id": task_id, "grant_id": decision.grant_id}
-        target_binding, adapter = adapter_entry
+        target_binding, _adapter = adapter_entry
         if target_binding != target:
             return {"verdict": "deny", "reason": "executor target mismatch", "task_id": task_id, "grant_id": decision.grant_id}
 
         if decision.verdict == "ask":
-            return self.controlplane.request_scoped(task_id, agent_id, tool, action, target, detail, executor=adapter, executor_id=resolved_executor_id)
+            return self.controlplane.request_scoped(
+                task_id,
+                agent_id,
+                tool,
+                action,
+                target,
+                detail,
+                executor_id=resolved_executor_id,
+            )
 
         grant = self.controlplane.grants[decision.grant_id]
         approval_id = "auto_" + uuid.uuid4().hex[:12]
@@ -73,13 +81,37 @@ class RuntimeGateway:
             "executor_id": resolved_executor_id,
         }
         self.controlplane.approvals[approval_id] = record
-        self.controlplane._approval_executors[approval_id] = adapter
         self.controlplane._save()
         self.controlplane.evidence.append("scoped.approval.auto_granted", self.controlplane._evidence_payload(record))
 
         authorization = self.authorizer.issue(approval_id, resolved_executor_id)
         result = self.worker.execute(authorization)
         return {"verdict": "allow", "reason": decision.reason, "task_id": task_id, "grant_id": grant.grant_id, "authorization": authorization.to_dict(), "result": result}
+
+    def approve_and_execute(self, approval_id: str, actor: str) -> dict[str, Any]:
+        """Approve a scoped request, then execute only through signed authorization."""
+        record = self.controlplane.approvals.get(approval_id)
+        if record is None or record.get("status") != "pending":
+            raise KeyError(f"no pending approval {approval_id}")
+        if record.get("task_id") is None:
+            raise ValueError("approve_and_execute only supports scoped approvals")
+
+        self.controlplane.decide(approval_id, approve=True, actor=actor, execute=False)
+        executor_id = record.get("executor_id")
+        if not isinstance(executor_id, str) or not executor_id:
+            raise ValueError("scoped executor binding unavailable")
+        if executor_id not in self.adapters:
+            raise ValueError("unknown executor")
+
+        authorization = self.authorizer.issue(approval_id, executor_id)
+        result = self.worker.execute(authorization)
+        return {
+            "verdict": "allow",
+            "reason": "human approved",
+            "approval_id": approval_id,
+            "authorization": authorization.to_dict(),
+            "result": result,
+        }
 
 
 class SimulatedToolAdapter:
