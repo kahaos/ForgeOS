@@ -21,7 +21,7 @@ python -m pip install --upgrade pip pytest
 pytest -q
 ```
 
-The hardening branch is configured so plain `pytest -q` runs the intended `tests/` suite.
+The hardening branch is configured so plain `pytest -q` runs the intended `tests/` suite. Docker isolation tests are deliberately skipped unless explicitly enabled.
 
 ## 2. Run the safe control-plane demo
 
@@ -48,6 +48,12 @@ Then run the harmless demo:
 python examples/isolated_worker_demo.py
 ```
 
+If your Linux user is intentionally not a member of the Docker group, run the demo with the Docker client under the required host privileges instead of granting broad Docker-daemon access to the development user:
+
+```bash
+sudo env PYTHONPATH=. .venv/bin/python examples/isolated_worker_demo.py
+```
+
 The demo starts a short-lived container with the ForgeOS hardened profile:
 
 - network disabled;
@@ -59,9 +65,35 @@ The demo starts a short-lived container with the ForgeOS hardened profile:
 - host environment variables are not forwarded;
 - no shell string is accepted.
 
-Docker documents these isolation controls, including `--network none`, read-only filesystems, capability dropping, `no-new-privileges`, and resource limits. See the Docker security documentation before using the worker with real workloads.
+Docker documents these isolation controls, including `--network none`, read-only filesystems, capability dropping, `no-new-privileges`, and resource limits. See the Docker run reference before using the worker with real workloads.
 
-## 4. Exercise the boundary
+## 4. Run the Docker isolation regression suite
+
+The real-Docker security tests are opt-in so normal CI and development do not require access to a Docker daemon.
+
+On a host with a usable Docker daemon:
+
+```bash
+FORGEOS_DOCKER_TESTS=1 pytest tests/test_isolated_worker_docker.py -q
+```
+
+If Docker access is intentionally restricted to elevated host commands:
+
+```bash
+sudo env PYTHONPATH=. FORGEOS_DOCKER_TESTS=1 .venv/bin/pytest tests/test_isolated_worker_docker.py -q
+```
+
+The suite checks the baseline runtime properties rather than treating the worker's command construction as proof. It verifies:
+
+- outbound network access fails;
+- writes outside `/workspace` fail;
+- `/workspace` remains writable;
+- host environment variables are absent;
+- `NoNewPrivs` is enabled;
+- effective Linux capabilities are zero;
+- execution timeouts are enforced.
+
+## 5. Exercise the boundary
 
 The worker is intentionally offline by default. A useful local smoke test is:
 
@@ -86,11 +118,11 @@ PY
 
 The network operation should fail because the hardened profile uses Docker's `none` network driver. Do not interpret this demo as a formal host-escape proof; container security depends on the host kernel, Docker configuration, runtime, images, and mount configuration.
 
-## 5. GitHub Codespaces
+## 6. GitHub Codespaces
 
 You can also open the repository in a GitHub Codespace and run the Python regression suite there. GitHub Codespaces creates a development container for the repository, so the normal Python tests are a convenient way to inspect the project without installing Python locally.
 
-The Docker-backed isolated-worker demo is a separate runtime requirement: a Codespace's development container does not automatically mean that a usable Docker daemon is available to nested workloads. If Docker is unavailable, run the isolated-worker demo on a Linux machine or VPS with Docker configured.
+The Docker-backed isolated-worker demo and integration suite are separate runtime requirements: a Codespace's development container does not automatically mean that a usable Docker daemon is available to nested workloads. If Docker is unavailable, run the isolated-worker tests on a Linux machine or VPS with Docker configured.
 
 ## Security model
 
