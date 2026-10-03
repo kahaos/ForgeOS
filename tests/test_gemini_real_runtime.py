@@ -20,7 +20,8 @@ def test_gemini_environment_isolated_from_host_home(tmp_path: Path) -> None:
 
 
 def test_write_gemini_settings_creates_only_forgeos_mcp(tmp_path: Path) -> None:
-    settings_path = write_gemini_settings(tmp_path, "forgeos_mcp_server.py")
+    server_script = tmp_path / "forgeos_mcp_server.py"
+    settings_path = write_gemini_settings(tmp_path, str(server_script))
 
     settings = json.loads(settings_path.read_text(encoding="utf-8"))
     server = settings["mcpServers"]["forgeos"]
@@ -38,7 +39,7 @@ def test_write_gemini_settings_creates_only_forgeos_mcp(tmp_path: Path) -> None:
     # authoritative policy/approval boundary for every tool action.
     assert server["trust"] is False
     assert server["args"] == [
-        "forgeos_mcp_server.py",
+        str(server_script.resolve()),
         "--workspace",
         str((tmp_path / "workspace").resolve()),
         "--state-dir",
