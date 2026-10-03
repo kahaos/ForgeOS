@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from controlplane.execution_worker import ExecutionAuthorizer, ExecutionWorker
+from controlplane.isolated_worker import DockerExecutorAdapter
 from controlplane.store import ControlPlane
 
 
@@ -53,6 +54,53 @@ def test_valid_approval_authorization_executes_once(tmp_path):
     with pytest.raises(ValueError, match="authorization already consumed"):
         worker.execute(authorization)
     assert len(calls) == 1
+
+
+def test_docker_executor_executes_only_after_authorization(tmp_path):
+    cp = ControlPlane(tmp_path / "controlplane")
+    cp.register("agent-1", owner="tester", capabilities=["GIT_PUSH"])
+    pending = cp.request(
+        "agent-1",
+        "git",
+        "push",
+        target="test-repo",
+        detail={"branch": "main"},
+        executor_id="docker-git-push",
+    )
+    approval_id = pending["approval_id"]
+    cp.decide(approval_id, approve=True, actor="human", execute=False)
+
+    calls = []
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    class FakeDockerWorker:
+        def run(self, command, workspace):
+            calls.append((list(command), workspace))
+            return type("Result", (), {"returncode": 0, "stdout": "ok\n", "stderr": ""})()
+
+    adapter = DockerExecutorAdapter(
+        FakeDockerWorker(),
+        command_builder=lambda request: ["git", "push", request.detail["branch"]],
+        workspace=workspace,
+    )
+
+    worker = ExecutionWorker(cp, b"forgeos-test-execution-key")
+    worker.register_docker_executor(
+        "docker-git-push",
+        target="test-repo",
+        executor=adapter,
+    )
+    authorization = ExecutionAuthorizer(cp, b"forgeos-test-execution-key").issue(
+        approval_id,
+        executor_id="docker-git-push",
+    )
+
+    result = worker.execute(authorization)
+
+    assert result["result"]["status"] == "completed"
+    assert calls == [(["git", "push", "main"], workspace)]
+    assert cp.approvals[approval_id]["status"] == "completed"
 
 
 def test_request_tampering_is_rejected_before_executor(tmp_path):
