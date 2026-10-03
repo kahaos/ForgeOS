@@ -8,6 +8,7 @@ command from the agent.
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +66,7 @@ class SafeTestAdapter(_WorkspaceBound):
     def __call__(self, request: ActionRequest) -> dict[str, Any]:
         if request.target != str(self.workspace):
             raise ValueError("test target mismatch")
-        command = ["python3", "-m", "pytest", "-q"]
+        command = [sys.executable, "-m", "pytest", "-q"]
         try:
             result = subprocess.run(
                 command,
