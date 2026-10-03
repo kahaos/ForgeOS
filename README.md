@@ -54,8 +54,8 @@ The long-term architecture is one shared control plane rather than a different p
 
 ```text
 Coding Agent     Research Agent     SEO Agent
-      \               |               /
-       \              |              /
+      \\               |               /
+       \\              |              /
         +-------------v-------------+
         |          ForgeOS          |
         |     authoritative gates   |
@@ -106,19 +106,51 @@ The v1 milestone demonstrated a live Gemini agent calling tools through ForgeOS 
 
 Human approval is bound to the exact request using a deterministic request digest, with agent and policy snapshots recorded in tamper-evident evidence.
 
-The hardened boundary now has three additional protections: restart-safe executor metadata, durable single-use execution nonces, and a request-bound authenticated-agent identity prototype using HMAC assertions with short lifetimes, audience binding, and replay protection.
+The hardened boundary now has additional protections: restart-safe executor metadata, durable single-use execution nonces, request-bound authenticated-agent identity using short-lived HMAC assertions, adversarial replay/tamper/state-drift tests, and a Docker-backed isolated execution boundary with restrictive defaults.
 
 ### Current security status
 
 This is still a **development milestone**, not a production security claim.
 
-The current worker uses simulated/safe executors. The next security milestones include wiring authenticated identity into the gateway/API, dedicated credential/key management, isolated worker processes/containers, secret isolation, network egress controls, rate/budget controls, real Git/GitHub/filesystem/shell integrations, and adversarial testing.
+The default isolated worker profile is intentionally offline and restrictive. It uses a read-only container root filesystem, drops Linux capabilities, enables `no-new-privileges`, limits memory/CPU/PIDs, mounts only a dedicated workspace, and does not forward the host environment. Docker's `none` network driver is used for the baseline worker profile.
+
+The isolated worker is an execution boundary, **not a second authorization system**. ForgeOS authorization remains authoritative; the worker only executes after a valid authorization reaches it.
 
 No real financial spending or real secret retrieval is enabled by this milestone.
 
+## Try ForgeOS
+
+The quickest way to explore the repository is the [Getting Started guide](docs/GETTING_STARTED.md).
+
+For a normal local checkout:
+
+```bash
+git clone https://github.com/kahaos/ForgeOS.git
+cd ForgeOS
+git checkout hardening-v1
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip pytest
+pytest -q
+```
+
+Run the safe control-plane demo:
+
+```bash
+python -m controlplane.demo
+```
+
+To try the isolated worker itself, install Docker and run:
+
+```bash
+python examples/isolated_worker_demo.py
+```
+
+GitHub Codespaces can be used for the Python test suite; the Docker-backed worker additionally requires a usable Docker daemon, which is not automatically provided merely because the development environment is a Codespace.
+
 ## Licensing
 
-ForgeOS is licensed under the **Apache License 2.0 (Apache-2.0)**. The repository includes the full `LICENSE` text and `NOTICE` file. Apache 2.0 is a permissive open-source license and includes an express patent license for qualifying contributor patent claims. citeturn0search2
+ForgeOS is licensed under the **Apache License 2.0 (Apache-2.0)**. The repository includes the full `LICENSE` text and `NOTICE` file. Apache 2.0 is a permissive open-source license and includes an express patent license for qualifying contributor patent claims.
 
 ## Repository structure
 
@@ -133,6 +165,7 @@ controlplane/
   api.py                 Approval API adapter
   api_server.py          Standard-library HTTP server
   execution_worker.py    Bound authorization + governed worker
+  isolated_worker.py     Hardened Docker execution boundary
   gemini_adapter.py      Gemini tool adapter
   gemini_test/           Live Gemini integration test
 
@@ -140,9 +173,16 @@ tests/
   test_controlplane_*.py Control Plane regression tests
   test_gemini_*.py       Gemini integration/approval tests
   test_execution_worker.py Worker boundary tests
-  test_controlplane_http.py HTTP API integration test
   test_hardening_persistence.py Restart/replay hardening tests
   test_agent_identity.py Agent authentication tests
+  test_adversarial_hardening.py Adversarial tamper/replay/state tests
+  test_isolated_worker.py Isolated worker security contract tests
+
+examples/
+  isolated_worker_demo.py Safe Docker worker demonstration
+
+docs/
+  GETTING_STARTED.md     Local, Codespaces and isolated-worker setup
 
 docs/superpowers/
   specs/                 Approved architecture specifications
@@ -184,19 +224,10 @@ python -m controlplane.api_server
 Run the complete hardening regression suite:
 
 ```bash
-PYTHONPATH=. pytest \
-  tests/test_controlplane_execution.py \
-  tests/test_controlplane_approval.py \
-  tests/test_gemini_adapter.py \
-  tests/test_gemini_approval.py \
-  tests/test_controlplane_api.py \
-  tests/test_controlplane_http.py \
-  tests/test_execution_worker.py \
-  tests/test_hardening_persistence.py \
-  tests/test_agent_identity.py -q
+pytest -q
 ```
 
-The latest GitHub Actions verification completed with **45 tests passing**.
+The intended hardening test suite currently contains **76 passing tests** on the VPS verification environment. The repository also contains older root-level patch tests that are intentionally outside normal pytest discovery.
 
 ## Roadmap
 
@@ -215,14 +246,16 @@ The latest GitHub Actions verification completed with **45 tests passing**.
 - **completed:** durable executor metadata across Control Plane restart;
 - **completed:** durable single-use execution nonce consumption;
 - **completed:** request-bound authenticated agent identity prototype;
+- **completed:** adversarial tamper/replay/state-drift regression suite;
+- **completed:** hardened Docker-backed isolated worker baseline;
 - gateway/API identity enforcement;
 - dedicated credential and key management;
-- isolated worker process/container;
 - secret isolation;
-- network egress policy;
+- network egress policy for explicitly authorized integrations;
 - rate and budget controls;
 - stronger asymmetric key management;
-- transactional multi-worker persistence.
+- transactional multi-worker persistence;
+- pinned trusted executor images and image provenance.
 
 ### v1.5 — Real integrations
 
@@ -265,7 +298,8 @@ The latest GitHub Actions verification completed with **45 tests passing**.
 8. **Alpha remains the governed execution lifecycle.** The Control Plane does not replace it.
 9. **Sensitive capabilities remain outside autonomous agent authority.**
 10. **Security boundaries must be tested, not assumed.**
+11. **Secure defaults should not become permanent limitations.** Additional capabilities must be explicit, scoped, and policy-controlled rather than weakening the baseline.
 
 ## Status
 
-ForgeOS is under active development. The `human-approval-v1` branch is the frozen authority milestone; `hardening-v1` is the active implementation track for the next security boundary.
+ForgeOS is under active development. The `human-approval-v1` branch is the frozen authority milestone; `hardening-v1` is the active implementation track for the next security boundaries.
