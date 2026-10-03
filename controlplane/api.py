@@ -21,6 +21,8 @@ class ApprovalAPI:
 
         if route == "/approvals/request":
             return self._method(method, "POST", lambda: self._request(payload))
+        if route == "/scoped/request":
+            return self._method(method, "POST", lambda: self._scoped_request(payload))
         if route == "/approvals/pending":
             return self._method(method, "GET", lambda: (200, self.controlplane.pending()))
         if route == "/tasks":
@@ -59,6 +61,18 @@ class ApprovalAPI:
         if not isinstance(target, str) or not isinstance(detail, dict):
             return 400, {"error": "invalid request"}
         result = self.controlplane.request(payload["agent_id"], payload["tool"], payload["action"], target=target, detail=detail)
+        return self._decision_status(result)
+
+    def _scoped_request(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return 400, {"error": "invalid request"}
+        required = ("task_id", "agent_id", "tool", "action", "target")
+        if any(not isinstance(payload.get(key), str) or not payload[key] for key in required):
+            return 400, {"error": "invalid request"}
+        detail = payload.get("detail", {})
+        if not isinstance(detail, dict):
+            return 400, {"error": "invalid request"}
+        result = self.controlplane.request_scoped(payload["task_id"], payload["agent_id"], payload["tool"], payload["action"], payload["target"], detail, executor_id=payload.get("executor_id"))
         return self._decision_status(result)
 
     def _create_task(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
