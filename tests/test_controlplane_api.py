@@ -97,7 +97,7 @@ def test_pending_and_detail_endpoints_expose_exact_approval_binding(tmp_path):
     assert detail["policy_version"] == cp.approvals[approval_id]["policy_version"]
 
 
-def test_approve_executes_once_and_deny_never_executes(tmp_path):
+def test_approve_authorizes_once_and_deny_never_authorizes(tmp_path):
     api, cp = make_api(tmp_path)
     _, pending = call(
         api,
@@ -120,7 +120,7 @@ def test_approve_executes_once_and_deny_never_executes(tmp_path):
     )
     assert status == 200
     assert approved["verdict"] == "allow"
-    assert cp.approvals[approval_id]["status"] == "completed"
+    assert cp.approvals[approval_id]["status"] == "approved"
 
     replay_status, replay = call(
         api,
