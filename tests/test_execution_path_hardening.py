@@ -50,20 +50,22 @@ def test_scoped_request_never_invokes_caller_executor(tmp_path):
 
 def test_scoped_approval_cannot_execute_directly_from_controlplane(tmp_path):
     cp = setup_scoped(tmp_path)
+    worker = ExecutionWorker(cp, b"boundary-test-key")
+    gateway = RuntimeGateway(cp, worker, b"boundary-test-key")
     adapter = SimulatedToolAdapter("git")
-    pending = cp.request_scoped(
+    gateway.register_adapter("git:push", "company/site", adapter)
+    pending = gateway.request(
         "site",
         "builder",
         "git",
         "push",
         "company/site",
         {"branch": "main"},
-        executor=adapter,
-        executor_id="git:push",
     )
     assert pending["verdict"] == "ask"
     with pytest.raises(ValueError, match="scoped approval must execute through RuntimeGateway"):
         cp.decide(pending["approval_id"], approve=True, actor="human", execute=True)
+    assert cp.approvals[pending["approval_id"]]["status"] == "pending"
     assert adapter.calls == []
 
 
