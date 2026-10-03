@@ -8,7 +8,8 @@ from typing import Sequence
 from .authority import CapabilityGrant, Task
 from .models import ActionRequest, Agent, Decision
 
-POLICY_VERSION = "controlplane-2.0-scoped-authority"
+POLICY_VERSION = "controlplane-1.0"
+SCOPED_POLICY_VERSION = "controlplane-scoped-authority-1.0"
 
 REQUIRED = {
     ("filesystem", "read"): "FS_READ",
