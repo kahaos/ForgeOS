@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+# The MCP launcher is executed directly by Gemini CLI with cwd bound to the
+# disposable workspace. Bootstrap the repository root explicitly so the
+# controlplane package remains importable without relying on PYTHONPATH.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from controlplane.authority import Scope
 from controlplane.execution_worker import ExecutionWorker
