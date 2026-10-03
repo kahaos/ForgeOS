@@ -149,7 +149,7 @@ class DockerExecutorAdapter:
     def __call__(self, request: ActionRequest) -> dict[str, object]:
         try:
             result = self.worker.run(self.command_builder(request), self.workspace)
-        except RuntimeError as exc:
+        except (RuntimeError, TypeError, ValueError) as exc:
             return {"status": "failed", "error": str(exc)}
 
         return {
