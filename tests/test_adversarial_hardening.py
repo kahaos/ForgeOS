@@ -13,6 +13,7 @@ from controlplane.execution_worker import (
     ExecutionAuthorizer,
     ExecutionWorker,
 )
+from controlplane.isolated_worker import DockerExecutorAdapter
 from controlplane.store import ControlPlane
 
 
@@ -49,10 +50,44 @@ def make_worker(cp, calls):
     return worker
 
 
+def make_docker_worker(cp, calls, tmp_path):
+    workspace = tmp_path / "docker-workspace"
+    workspace.mkdir()
+
+    class FakeDockerWorker:
+        def run(self, command, workspace):
+            calls.append((list(command), workspace))
+            return type("Result", (), {"returncode": 0, "stdout": "ok\n", "stderr": ""})()
+
+    adapter = DockerExecutorAdapter(
+        FakeDockerWorker(),
+        command_builder=lambda request: ["git", "push", request.detail["branch"]],
+        workspace=workspace,
+    )
+    worker = ExecutionWorker(cp, KEY)
+    worker.register_docker_executor("simulated-git-push", "test-repo", adapter)
+    return worker
+
+
 def test_tampered_authorization_never_reaches_executor(tmp_path):
     cp, approval_id = make_approved_request(tmp_path)
     calls = []
     worker = make_worker(cp, calls)
+    authorization = ExecutionAuthorizer(cp, KEY).issue(
+        approval_id,
+        executor_id="simulated-git-push",
+    )
+
+    with pytest.raises(ValueError, match="authorization signature mismatch"):
+        worker.execute(replace(authorization, target="production-repo"))
+
+    assert calls == []
+
+
+def test_docker_tampered_authorization_never_reaches_executor(tmp_path):
+    cp, approval_id = make_approved_request(tmp_path)
+    calls = []
+    worker = make_docker_worker(cp, calls, tmp_path)
     authorization = ExecutionAuthorizer(cp, KEY).issue(
         approval_id,
         executor_id="simulated-git-push",
@@ -83,6 +118,26 @@ def test_capability_drift_invalidates_issued_authorization(tmp_path):
 
     assert calls == []
     assert restarted.agents["agent-1"].capabilities == []
+
+
+def test_docker_capability_drift_never_reaches_executor(tmp_path):
+    cp, approval_id = make_approved_request(tmp_path)
+    calls = []
+    worker = make_docker_worker(cp, calls, tmp_path)
+    authorization = ExecutionAuthorizer(cp, KEY).issue(
+        approval_id,
+        executor_id="simulated-git-push",
+    )
+
+    cp.agents["agent-1"].capabilities = []
+    cp._save()
+    restarted = ControlPlane(tmp_path / "controlplane")
+    restarted_worker = make_docker_worker(restarted, calls, tmp_path)
+
+    with pytest.raises(ValueError, match="agent snapshot mismatch"):
+        restarted_worker.execute(authorization)
+
+    assert calls == []
 
 
 def test_policy_version_drift_invalidates_issued_authorization(tmp_path):
@@ -139,6 +194,26 @@ def test_persisted_authorization_cannot_be_replayed_after_restart(tmp_path):
 
     restarted = ControlPlane(tmp_path / "controlplane")
     restarted_worker = make_worker(restarted, calls)
+
+    with pytest.raises(ValueError, match="authorization already consumed"):
+        restarted_worker.execute(authorization)
+
+    assert len(calls) == 1
+
+
+def test_docker_authorization_cannot_replay_after_restart(tmp_path):
+    cp, approval_id = make_approved_request(tmp_path)
+    calls = []
+    worker = make_docker_worker(cp, calls, tmp_path)
+    authorization = ExecutionAuthorizer(cp, KEY).issue(
+        approval_id,
+        executor_id="simulated-git-push",
+    )
+
+    worker.execute(authorization)
+
+    restarted = ControlPlane(tmp_path / "controlplane")
+    restarted_worker = make_docker_worker(restarted, calls, tmp_path)
 
     with pytest.raises(ValueError, match="authorization already consumed"):
         restarted_worker.execute(authorization)
