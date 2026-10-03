@@ -78,7 +78,14 @@ class ControlPlane:
         event = self.evidence.append("approval.requested", self._evidence_payload(record))
         return {"verdict": "ask", "reason": decision.reason, "approval_id": approval_id, "request_digest": record["request_digest"], "evidence": event["digest"]}
 
-    def decide(self, approval_id: str, approve: bool, actor: str = "human", executor: Executor | None = None) -> dict[str, Any]:
+    def decide(
+        self,
+        approval_id: str,
+        approve: bool,
+        actor: str = "human",
+        executor: Executor | None = None,
+        execute: bool = True,
+    ) -> dict[str, Any]:
         record = self.approvals.get(approval_id)
         if not record or record["status"] != "pending":
             raise KeyError(f"no pending approval {approval_id}")
@@ -104,6 +111,15 @@ class ControlPlane:
         approved_payload = self._evidence_payload(record)
         approved_event = self.evidence.append("approval.approved", approved_payload)
         self.evidence.append("approval.granted", approved_payload)
+
+        if not execute:
+            return {
+                "verdict": "allow",
+                "reason": "human approved",
+                "approval_id": approval_id,
+                "request_digest": record["request_digest"],
+                "approval_evidence": approved_event["digest"],
+            }
 
         req = ActionRequest(**record["request"])
         try:
