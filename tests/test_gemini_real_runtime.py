@@ -34,7 +34,9 @@ def test_write_gemini_settings_creates_only_forgeos_mcp(tmp_path: Path) -> None:
         "git_push",
         "request_action",
     ]
-    assert server["trust"] is True
+    # Keep the MCP server untrusted at the Gemini layer so ForgeOS remains the
+    # authoritative policy/approval boundary for every tool action.
+    assert server["trust"] is False
     assert server["args"] == [
         "forgeos_mcp_server.py",
         "--workspace",
