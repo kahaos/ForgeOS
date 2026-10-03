@@ -86,6 +86,18 @@ Executor identity/target bindings are now persisted in `executors.json`, allowin
 
 Execution nonces are persisted in `execution_nonces.json` and consumed under a Unix file lock. This makes the single-use authorization decision survive worker restarts. A failed executor does not release its consumed nonce; retry requires a new authorization.
 
+### `agent_identity.py`
+
+Provides the first authenticated-agent identity prototype. An agent proves possession of a provisioned secret by producing an HMAC assertion bound to:
+
+- agent identity;
+- ForgeOS audience;
+- exact request digest;
+- issue/expiry timestamps;
+- single-use nonce.
+
+The verifier uses constant-time MAC comparison and rejects wrong secrets, request/audience substitution, expiry, signature tampering, and replay. Secrets remain process-local in this prototype; production key management will move the trust anchor into a dedicated credential system and should prefer sender-constrained/asymmetric credentials.
+
 ### `evidence.py`
 
 Maintains the tamper-evident evidence chain. Approval requests, decisions, grants, executions, and failures are recorded as evidence events.
@@ -148,7 +160,9 @@ Nonces are generated with Python's `secrets` module, which provides cryptographi
 
 Authorization state is written with atomic file replacement, and nonce consumption uses an exclusive Unix file lock. These mechanisms are appropriate for the current development worker boundary, but they are **not** the final production state store or key-management architecture. Python documents `os.replace()` as atomic when the replacement occurs successfully on the same filesystem, and `fcntl.flock()` provides exclusive file locking on Unix. citeturn4search0turn2search0
 
-The production roadmap still requires authenticated agent identities, stronger key management, isolated workers, secret isolation, network controls, durable multi-process state, and adversarial security testing.
+The authenticated-agent prototype follows the same principle of request-bound, short-lived, replay-resistant assertions. NIST's current agent-identity work emphasizes first-class agent identities, tightly scoped short-lived credentials, request binding, and proof-of-possession rather than relying on long-lived bearer credentials. citeturn7search0turn7search1
+
+The production roadmap still requires durable agent credential storage/rotation, stronger asymmetric key management, isolated workers, secret isolation, network controls, durable multi-process state, and adversarial security testing.
 
 ## Current limitations
 
@@ -162,6 +176,8 @@ This v1 milestone intentionally does not enable:
 - agent-controlled policy modification.
 
 Executor metadata and replay state are now durable, but executor function bindings remain process-local by design. A restarted worker must explicitly re-register the executor callable before it can execute anything. This prevents persistence from becoming an implicit permission to execute.
+
+Agent authentication secrets are process-local and are not persisted, rotated, or exposed through the HTTP API yet. The next identity step is to bind `AgentAuthenticator` into the gateway/API and then replace shared-secret provisioning with a dedicated credential/key-management layer.
 
 The JSON store is still a development persistence layer rather than a production database. The next persistence hardening step is a transactional multi-worker store with stronger concurrency guarantees.
 
@@ -201,6 +217,8 @@ The v1 CI suite covers:
 - worker fail-closed behaviour;
 - restart-safe executor binding;
 - durable nonce consumption;
-- no-retry-after-failed-execution replay protection.
+- no-retry-after-failed-execution replay protection;
+- authenticated agent request binding;
+- agent secret, audience, signature, expiry, and replay failures.
 
-The latest verified hardening regression run completed with **38 tests passing**.
+The latest verified hardening regression run completed with **45 tests passing**.
