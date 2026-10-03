@@ -96,9 +96,9 @@ ForgeOS therefore does not replace ForgeOS Alpha. The Control Plane becomes the 
 
 ## Current v1 milestone
 
-The current branch is `human-approval-v1`.
+`human-approval-v1` is the frozen authority-boundary milestone. `hardening-v1` is the active security-hardening track built on top of it.
 
-The current milestone has demonstrated a live Gemini agent calling tools through ForgeOS and receiving:
+The v1 milestone demonstrated a live Gemini agent calling tools through ForgeOS and receiving:
 
 - `ALLOW` for permitted low-risk operations;
 - `ASK` for sensitive operations requiring human approval;
@@ -106,15 +106,19 @@ The current milestone has demonstrated a live Gemini agent calling tools through
 
 Human approval is bound to the exact request using a deterministic request digest, with agent and policy snapshots recorded in tamper-evident evidence.
 
-The next boundary is the governed Execution Worker. It receives a short-lived, cryptographically bound execution authorization and independently rejects altered requests, expired/replayed authorizations, agent drift, policy drift, executor substitution, and target substitution.
+The hardened worker boundary now adds restart-safe executor metadata and durable single-use execution nonces. An approved authorization can survive a Control Plane restart, while the executable callable must still be explicitly registered by the live worker process.
 
 ### Current security status
 
 This is still a **development milestone**, not a production security claim.
 
-The current worker uses simulated/safe executors and an in-process control-plane store. The next security milestones include durable authorization state, isolated worker processes/containers, secret isolation, authenticated agent identities, network egress controls, rate/budget controls, real Git/GitHub/filesystem/shell integrations, and adversarial testing.
+The current worker uses simulated/safe executors. The next security milestones include authenticated agent identities, isolated worker processes/containers, secret isolation, network egress controls, rate/budget controls, stronger key management, real Git/GitHub/filesystem/shell integrations, and adversarial testing.
 
 No real financial spending or real secret retrieval is enabled by this milestone.
+
+## Licensing
+
+ForgeOS is licensed under the **Apache License 2.0 (Apache-2.0)**. The repository includes the full `LICENSE` text and `NOTICE` file. Apache 2.0 is a permissive open-source license and includes an express patent license for qualifying contributor patent claims. citeturn0search2
 
 ## Repository structure
 
@@ -136,6 +140,7 @@ tests/
   test_gemini_*.py       Gemini integration/approval tests
   test_execution_worker.py Worker boundary tests
   test_controlplane_http.py HTTP API integration test
+  test_hardening_persistence.py Restart/replay hardening tests
 
 docs/superpowers/
   specs/                 Approved architecture specifications
@@ -174,7 +179,7 @@ Run the approval API server locally:
 python -m controlplane.api_server
 ```
 
-Run the v1 regression suite:
+Run the complete hardening regression suite:
 
 ```bash
 PYTHONPATH=. pytest \
@@ -184,8 +189,11 @@ PYTHONPATH=. pytest \
   tests/test_gemini_approval.py \
   tests/test_controlplane_api.py \
   tests/test_controlplane_http.py \
-  tests/test_execution_worker.py -q
+  tests/test_execution_worker.py \
+  tests/test_hardening_persistence.py -q
 ```
+
+The latest GitHub Actions verification completed with **38 tests passing**.
 
 ## Roadmap
 
@@ -201,14 +209,15 @@ PYTHONPATH=. pytest \
 
 ### v1.1 — Harden the boundary
 
-- durable execution authorizations;
+- **completed:** durable executor metadata across Control Plane restart;
+- **completed:** durable single-use execution nonce consumption;
 - authenticated agent identities;
 - isolated worker process/container;
 - secret isolation;
-- replay protection across restarts;
 - network egress policy;
 - rate and budget controls;
-- stronger key management.
+- stronger key management;
+- transactional multi-worker persistence.
 
 ### v1.5 — Real integrations
 
@@ -254,4 +263,4 @@ PYTHONPATH=. pytest \
 
 ## Status
 
-ForgeOS is under active development. The `human-approval-v1` branch is the current implementation track for the Control Plane authority boundary.
+ForgeOS is under active development. The `human-approval-v1` branch is the frozen authority milestone; `hardening-v1` is the active implementation track for the next security boundary.
