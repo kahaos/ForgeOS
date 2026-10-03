@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from examples.run_gemini_forgeos_trial import build_gemini_settings, build_gemini_command
+from examples.run_gemini_forgeos_trial import (
+    FORGEOS_TOOLS,
+    build_gemini_settings,
+    build_gemini_command,
+    prepare_trial,
+)
 
 
 def test_gemini_settings_allow_only_forgeos_mcp(tmp_path: Path) -> None:
@@ -40,3 +45,24 @@ def test_gemini_command_uses_isolated_home_and_no_yolo(tmp_path: Path) -> None:
     assert "--yolo" not in command
     assert "--approval-mode" in command
     assert "default" in command
+
+
+def test_prepare_trial_creates_complete_isolated_runtime(tmp_path: Path) -> None:
+    paths = prepare_trial(tmp_path, "forgeos-server.py")
+
+    assert paths.root == tmp_path.resolve()
+    assert paths.workspace == (tmp_path / "workspace").resolve()
+    assert paths.state == (tmp_path / "state").resolve()
+    assert paths.home == (tmp_path / "home").resolve()
+    assert paths.gemini_home == (tmp_path / "gemini-home").resolve()
+    assert paths.settings == (tmp_path / "workspace/.gemini/settings.json").resolve()
+
+    assert paths.workspace.is_dir()
+    assert paths.state.is_dir()
+    assert paths.home.is_dir()
+    assert paths.gemini_home.is_dir()
+    assert paths.settings.is_file()
+
+    settings = json.loads(paths.settings.read_text(encoding="utf-8"))
+    assert settings["mcpServers"]["forgeos"]["includeTools"] == FORGEOS_TOOLS
+    assert settings["mcpServers"]["forgeos"]["cwd"] == str(paths.workspace)
