@@ -16,9 +16,5 @@ jobs:
           python-version: "3.12"
       - name: Install test dependencies
         run: python -m pip install --upgrade pip pytest
-      - name: Run Human Approval v1 tests
-        env:
-          PYTHONPATH: .
-        run: |
-          # Full v1 authority, HTTP, worker, identity, and hardening regression suite.
-          pytest tests/test_controlplane_execution.py tests/test_controlplane_approval.py tests/test_gemini_adapter.py tests/test_gemini_approval.py tests/test_controlplane_api.py tests/test_controlplane_http.py tests/test_execution_worker.py tests/test_hardening_persistence.py tests/test_agent_identity.py -q
+      - name: Run ForgeOS regression suite
+        run: pytest -q
