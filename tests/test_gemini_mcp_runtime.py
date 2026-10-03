@@ -120,7 +120,7 @@ def test_secret_request_creates_approval_without_exposing_secret(tmp_path: Path)
     assert approval["status"] == "pending"
 
 
-def test_real_mcp_launcher_exposes_only_fixed_tools(tmp_path: Path) -> None:
+def _start_server(tmp_path: Path) -> tuple[subprocess.Popen[str], Path]:
     workspace = tmp_path / "workspace"
     state_dir = tmp_path / "state"
     process = subprocess.Popen(
@@ -143,29 +143,56 @@ def test_real_mcp_launcher_exposes_only_fixed_tools(tmp_path: Path) -> None:
     )
     assert process.stdin is not None
     assert process.stdout is not None
+    return process, workspace
 
-    initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
-    process.stdin.write(json.dumps(initialize) + "\n")
+
+def _rpc(process: subprocess.Popen[str], message: dict[str, object]) -> dict[str, object]:
+    assert process.stdin is not None
+    assert process.stdout is not None
+    process.stdin.write(json.dumps(message) + "\n")
     process.stdin.flush()
-    response = json.loads(process.stdout.readline())
-    assert response["result"]["serverInfo"]["name"] == "forgeos-control-plane"
+    return json.loads(process.stdout.readline())
 
-    tools = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
-    process.stdin.write(json.dumps(tools) + "\n")
-    process.stdin.flush()
-    response = json.loads(process.stdout.readline())
-    names = {tool["name"] for tool in response["result"]["tools"]}
-    assert names == {
-        "read_file",
-        "write_file",
-        "run_test",
-        "git_status",
-        "git_commit",
-        "git_push",
-        "request_action",
-    }
-    assert "shell" not in names
 
-    process.stdin.close()
-    process.terminate()
-    process.wait(timeout=5)
+def test_real_mcp_launcher_exposes_only_fixed_tools_and_executes_governed_write(tmp_path: Path) -> None:
+    process, workspace = _start_server(tmp_path)
+    try:
+        initialize = _rpc(process, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+        assert initialize["result"]["serverInfo"]["name"] == "forgeos-control-plane"
+
+        tools = _rpc(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        names = {tool["name"] for tool in tools["result"]["tools"]}
+        assert names == {
+            "read_file",
+            "write_file",
+            "run_test",
+            "git_status",
+            "git_commit",
+            "git_push",
+            "request_action",
+        }
+        assert "shell" not in names
+
+        write = _rpc(
+            process,
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "write_file",
+                    "arguments": {
+                        "workspace": str(workspace),
+                        "name": "index.html",
+                        "content": "<h1>ForgeOS</h1>\n",
+                    },
+                },
+            },
+        )
+        assert write["result"]["isError"] is False
+        assert (workspace / "index.html").read_text(encoding="utf-8") == "<h1>ForgeOS</h1>\n"
+    finally:
+        if process.stdin is not None:
+            process.stdin.close()
+        process.terminate()
+        process.wait(timeout=5)
