@@ -145,7 +145,13 @@ class ExecutionWorker:
         self._verify_time(authorization)
 
         record = self.controlplane.approvals.get(authorization.approval_id)
-        if not record or record.get("status") != "approved":
+        if record is None:
+            raise ValueError("approval is not executable")
+
+        if not self.controlplane.consume_execution_nonce(authorization.nonce):
+            raise ValueError("authorization already consumed")
+
+        if record.get("status") != "approved":
             raise ValueError("approval is not executable")
 
         request = ActionRequest(**authorization.request)
@@ -174,9 +180,6 @@ class ExecutionWorker:
         registered_target, executor = registered
         if registered_target != authorization.target:
             raise ValueError("executor target mismatch")
-
-        if not self.controlplane.consume_execution_nonce(authorization.nonce):
-            raise ValueError("authorization already consumed")
 
         result = executor(request)
         self.controlplane.complete_approved_execution(authorization.approval_id, result)
