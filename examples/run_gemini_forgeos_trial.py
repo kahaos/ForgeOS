@@ -47,7 +47,7 @@ def build_gemini_settings(workspace: str | Path, server_script: str) -> dict[str
                     TRIAL_AGENT_ID,
                 ],
                 "cwd": str(workspace_path),
-                "trust": True,
+                "trust": False,
                 "includeTools": list(FORGEOS_TOOLS),
             }
         },
