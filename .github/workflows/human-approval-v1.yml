@@ -5,6 +5,7 @@ on:
     branches:
       - human-approval-v1
       - hardening-v1
+      - scoped-authority-v1
 
 jobs:
   test:
