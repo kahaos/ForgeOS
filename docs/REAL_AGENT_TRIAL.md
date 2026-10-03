@@ -61,7 +61,7 @@ By default this prepares:
 └── gemini-home/
 ```
 
-The generated project configuration binds the MCP server to the disposable workspace and state directory. It contains no provider API key, token, or secret. The runner also removes `GEMINI_API_KEY`, `GOOGLE_API_KEY`, and `GOOGLE_APPLICATION_CREDENTIALS` from the Gemini process environment so provider credentials from the operator shell are not inherited by the trial.
+The generated project configuration binds the MCP server to the disposable workspace and state directory. It contains no provider API key, token, or secret. The runner also removes `GEMINI_API_KEY`, `GOOGLE_API_KEY`, and `GOOGLE_APPLICATION_CREDENTIALS` from the Gemini process environment unless the operator explicitly selects an authentication mode.
 
 Use `--trial-root` to select another disposable location:
 
@@ -71,6 +71,35 @@ Use `--trial-root` to select another disposable location:
   --prepare-only
 ```
 
+## Launch Gemini with an API key
+
+The failed personal-Google login should not be worked around by weakening ForgeOS. Gemini CLI's current authentication documentation supports API-key authentication for headless operation, using `GEMINI_API_KEY`. urlGemini CLI authentication setuphttps://geminicli.com/docs/get-started/authentication/
+
+Keep the API key outside the repository and outside the trial files. Export it only in the shell that launches the trial:
+
+```bash
+export GEMINI_API_KEY='YOUR_GEMINI_API_KEY'
+```
+
+Then explicitly select API-key authentication:
+
+```bash
+cd /opt/forgeos/hardening-v1-trial
+
+/opt/forgeos/.venv/bin/python \
+  examples/run_gemini_forgeos_trial.py \
+  --trial-root /opt/forgeos/gemini-controlplane-trial \
+  --provider-auth gemini-api-key
+```
+
+The runner passes `GEMINI_API_KEY` only to the Gemini subprocess. It does **not** put the key into `settings.json`, command-line arguments, ForgeOS MCP configuration, or evidence output. The generated Gemini settings explicitly select `gemini-api-key`, preventing the CLI from asking for Google OAuth during the trial.
+
+If `GEMINI_API_KEY` is not present, the runner stops with an error rather than launching Gemini without a known authentication method.
+
+## Launch Gemini without provider credentials
+
+For preparation-only checks or environments where authentication is already cached inside the isolated Gemini home, omit `--provider-auth`. Credentials are stripped from the subprocess environment by default.
+
 ## Launch Gemini
 
 First verify the CLI is the expected installation:
@@ -79,17 +108,7 @@ First verify the CLI is the expected installation:
 gemini --version
 ```
 
-Then launch the complete trial:
-
-```bash
-cd /opt/forgeos/hardening-v1-trial
-
-/opt/forgeos/.venv/bin/python \
-  examples/run_gemini_forgeos_trial.py \
-  --trial-root /opt/forgeos/gemini-controlplane-trial
-```
-
-Do **not** use Gemini YOLO mode for this trial. The runner uses `--approval-mode default`, disables built-in Gemini tools, and exposes only the seven ForgeOS MCP tools.
+Do **not** use Gemini YOLO mode for this trial. The runner uses `--approval-mode default`, disables built-in Gemini tools, and exposes only the seven ForgeOS MCP tools. Gemini's CLI documentation identifies `default` as the approval mode that prompts for tool calls, while `yolo` automatically approves all tool calls. urlGemini CLI configurationhttps://geminicli.com/docs/reference/configuration/
 
 The intended authority chain is:
 
@@ -101,8 +120,6 @@ Gemini
   -> ExecutionWorker
   -> disposable workspace / local Git remote
 ```
-
-For authentication, Gemini CLI's normal Google sign-in can be used interactively. In headless operation, Gemini's documentation supports API-key or Vertex AI authentication; any such credential should remain outside the repository and trial settings. urlGemini CLI authentication setuphttps://geminicli.com/docs/get-started/authentication/
 
 ## Expected evidence
 
@@ -121,4 +138,4 @@ At minimum, capture:
 
 ## Current status
 
-The MCP server, stdio transport, session binding, real local adapters, executable Gemini trial harness, isolated runtime preparation, and boundary tests are implemented. The remaining external validation is to run the executable harness on the VPS and capture the observed autonomous website build. The GitHub disposable-repository trial follows that validation.
+The MCP server, stdio transport, session binding, real local adapters, executable Gemini trial harness, isolated runtime preparation, explicit API-key authentication path, and boundary tests are implemented. The remaining external validation is to run the API-key-authenticated harness on the VPS and capture the observed autonomous website build. The GitHub disposable-repository trial follows that validation.
