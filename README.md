@@ -17,6 +17,8 @@ AI Agent
 ForgeOS Control Plane
    | identity
    | capability
+   | task
+   | scope
    | risk
    | policy
    | evidence
@@ -38,33 +40,64 @@ Real target
 
 ## What we are building
 
-ForgeOS is intended to become a general-purpose authority layer for increasingly capable agents, including:
-
-- coding agents;
-- research agents;
-- SEO and content agents;
-- website and operations agents;
-- business automation agents;
-- infrastructure and deployment agents;
-- multi-agent systems.
+ForgeOS is intended to become a general-purpose authority layer for increasingly capable agents, including coding, research, SEO/content, website/operations, infrastructure, business automation and multi-agent systems.
 
 The agents can be highly autonomous. **The authority does not move with the agent.** Sensitive capabilities remain governed by ForgeOS.
 
 The long-term architecture is one shared control plane rather than a different permission system for every agent.
 
+## Scoped Authority v1
+
+The active `scoped-authority-v1` implementation extends the original flat capability model with task-scoped authority:
+
 ```text
-Coding Agent     Research Agent     SEO Agent
-      \\               |               /
-       \\              |              /
-        +-------------v-------------+
-        |          ForgeOS          |
-        |     authoritative gates   |
-        +-------------+-------------+
-                      |
-             governed execution
-                      |
-          Git / Cloud / Web / Data
+Agent
+  -> Task
+  -> Capability Grant
+  -> Resource Scope
+  -> Risk / Policy
+  -> Allow / Ask / Deny
+  -> Short-lived signed authorization
+  -> Provider / Executor
+  -> Evidence
 ```
+
+A grant can be as narrow as:
+
+```text
+Agent: website-agent
+Task: website-build
+Capability: GIT_PUSH
+Repository: company/site
+Branch: feature/*
+Expiry: task expiry
+```
+
+The same agent can therefore push its assigned feature branch autonomously while a push to `main` can require human approval. An unrelated repository is denied regardless of the agent's other capabilities.
+
+### Multi-agent authority
+
+Agents are independent principals. A single task can contain several agents without merging their permissions:
+
+```text
+Task: Build Website
+├── Website Agent
+│   └── Git push: company/site / feature/*
+├── SEO Agent
+│   └── Website content / feature/*
+└── Deployment Agent
+    └── production deployment / approval required
+```
+
+Delegation uses explicit parent grants and can only attenuate authority. A child cannot widen the repository, capability, environment or expiry inherited from its parent.
+
+### Runtime gateway
+
+The provider-neutral runtime gateway is deliberately above provider-native controls. It does not replace GitHub, AWS, Entra, OAuth or MCP authorization. Provider adapters retain their own credentials and controls while ForgeOS supplies the task-scoped runtime authority decision and evidence boundary.
+
+NIST's current agent identity and authorization work is examining task-scoped/contextual authorization, ephemeral access, proof of authority, delegation, auditing and non-repudiation for agentic systems. NIST's September 2026 comment summary specifically describes strong support for task-scoped authorization and attenuation through delegation chains. OWASP's September 2026 Agent Control Standard similarly focuses on portable runtime enforcement hooks for agent platforms.
+
+See `docs/FORGEOS_ARCHITECTURE.md` for the detailed model.
 
 ## The ForgeOS 12-Gate Governed Execution Model
 
@@ -88,31 +121,13 @@ ForgeOS keeps the 12-gate model as a core architecture standard. The gates are l
 11. **Verify** — did the result satisfy the required checks?
 12. **Rollback** — if execution fails or verification fails, can the governed system recover safely?
 
-The key distinction is:
-
 > **The Control Plane decides whether an operation is authorized. Alpha governs the execution lifecycle.**
-
-ForgeOS therefore does not replace ForgeOS Alpha. The Control Plane becomes the authority above the governed execution layer.
 
 ## Current v1 milestone
 
-`human-approval-v1` is the frozen authority-boundary milestone. `hardening-v1` is the active security-hardening track built on top of it.
+`human-approval-v1` is the frozen authority-boundary milestone. `hardening-v1` is the active security-hardening track. `scoped-authority-v1` is the next feature branch extending that hardened boundary into task-scoped multi-agent authority.
 
-The v1 milestone demonstrated a live Gemini agent calling tools through ForgeOS and receiving:
-
-- `ALLOW` for permitted low-risk operations;
-- `ASK` for sensitive operations requiring human approval;
-- `DENY` for hard-restricted operations such as policy modification, unrestricted agent creation, and spending.
-
-Human approval is bound to the exact request using a deterministic request digest, with agent and policy snapshots recorded in tamper-evident evidence.
-
-The hardened boundary now has additional protections: restart-safe executor metadata, durable single-use execution nonces, request-bound authenticated-agent identity using short-lived HMAC assertions, adversarial replay/tamper/state-drift tests, and a Docker-backed isolated execution boundary with restrictive defaults.
-
-### Current security status
-
-This is still a **development milestone**, not a production security claim.
-
-The default isolated worker profile is intentionally offline and restrictive. It uses a read-only container root filesystem, drops Linux capabilities, enables `no-new-privileges`, limits memory/CPU/PIDs, mounts only a dedicated workspace, and does not forward the host environment. Docker's `none` network driver is used for the baseline worker profile.
+The hardened boundary includes restart-safe executor metadata, durable single-use execution nonces, request-bound authenticated-agent identity using short-lived HMAC assertions, adversarial replay/tamper/state-drift tests, and a Docker-backed isolated execution boundary with restrictive defaults.
 
 The isolated worker is an execution boundary, **not a second authorization system**. ForgeOS authorization remains authoritative; the worker only executes after a valid authorization reaches it.
 
@@ -120,18 +135,24 @@ No real financial spending or real secret retrieval is enabled by this milestone
 
 ## Try ForgeOS
 
-The quickest way to explore the repository is the [Getting Started guide](docs/GETTING_STARTED.md).
+The quickest way to explore the repository is the `docs/GETTING_STARTED.md` guide.
 
 For a normal local checkout:
 
 ```bash
 git clone https://github.com/kahaos/ForgeOS.git
 cd ForgeOS
-git checkout hardening-v1
+git checkout scoped-authority-v1
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip pytest
 pytest -q
+```
+
+Run the safe multi-agent scoped-authority demo:
+
+```bash
+python examples/scoped_multi_agent_demo.py
 ```
 
 Run the safe control-plane demo:
@@ -152,55 +173,53 @@ For the real-Docker isolation regression suite, explicitly opt in on a host with
 FORGEOS_DOCKER_TESTS=1 pytest tests/test_isolated_worker_docker.py -q
 ```
 
-GitHub Codespaces can be used for the normal Python test suite; the Docker-backed worker additionally requires a usable Docker daemon, which is not automatically provided merely because the development environment is a Codespace.
-
 ## Licensing
 
-ForgeOS is licensed under the **Apache License 2.0 (Apache-2.0)**. The repository includes the full `LICENSE` text and `NOTICE` file. Apache 2.0 is a permissive open-source license and includes an express patent license for qualifying contributor patent claims.
+ForgeOS is licensed under the **Apache License 2.0 (Apache-2.0)**. The repository includes the full `LICENSE` text and `NOTICE` file.
 
 ## Repository structure
 
 ```text
 controlplane/
   models.py              Agent and action models
-  policy.py              Capability and policy evaluation
+  authority.py           Task, scope and capability-grant primitives
+  policy.py              Legacy and scoped policy evaluation
   approval.py            Exact-request digest/binding helpers
   agent_identity.py      Request-bound agent authentication prototype
   store.py               Authoritative ControlPlane state/evidence
   evidence.py            Tamper-evident evidence chain
-  api.py                 Approval API adapter
+  api.py                 Approval + scoped authority API adapter
   api_server.py          Standard-library HTTP server
-  execution_worker.py    Bound authorization + governed worker
+  gateway.py             Provider-neutral runtime gateway/adapters
+  execution_worker.py    Signed authorization + governed worker
   isolated_worker.py     Hardened Docker execution boundary + adapter
   gemini_adapter.py      Gemini tool adapter
-  gemini_test/           Live Gemini integration test
 
 tests/
-  test_controlplane_*.py Control Plane regression tests
-  test_gemini_*.py       Gemini integration/approval tests
-  test_execution_worker.py Worker boundary tests
-  test_hardening_persistence.py Restart/replay hardening tests
-  test_agent_identity.py Agent authentication tests
-  test_adversarial_hardening.py Adversarial tamper/replay/state tests
-  test_isolated_worker.py Isolated worker security contract tests
-  test_isolated_worker_docker.py Opt-in real-Docker isolation tests
+  test_scoped_authority.py       Scope/task/grant/delegation tests
+  test_scoped_authority_api.py   Scoped API tests
+  test_runtime_gateway.py         Multi-agent runtime tests
+  test_scoped_execution_binding.py Signed scope-binding tests
+  test_execution_worker.py        Worker boundary regression tests
+  test_adversarial_hardening.py   Adversarial tamper/replay/state tests
+  test_isolated_worker_docker.py  Opt-in real-Docker isolation tests
 
 examples/
-  isolated_worker_demo.py Safe Docker worker demonstration
+  scoped_multi_agent_demo.py     Safe multi-agent authority demonstration
+  isolated_worker_demo.py        Safe Docker worker demonstration
 
 docs/
-  GETTING_STARTED.md     Local, Codespaces and isolated-worker setup
+  FORGEOS_ARCHITECTURE.md        Scoped multi-agent architecture
+  GETTING_STARTED.md              Local/Codespaces/worker setup
 
 docs/superpowers/
-  specs/                 Approved architecture specifications
-  plans/                 Implementation plans
-
-ForgeOS Alpha/           Historical governed-execution material
+  specs/                           Approved architecture specifications
+  plans/                           Implementation plans
 ```
 
-## Approval API
+## API surface
 
-The v1 API surface is intentionally small:
+Existing approval endpoints remain supported:
 
 ```text
 POST /approvals/request
@@ -210,103 +229,27 @@ POST /approvals/{approval_id}/approve
 POST /approvals/{approval_id}/deny
 ```
 
-The API is a thin adapter over the existing `ControlPlane`. It does not create a second authorization system.
+Scoped authority adds:
 
-Approval is separated from execution at the worker boundary: the API grants authorization, then the Execution Worker consumes the exact authorization once.
+```text
+POST /tasks
+GET  /tasks/{task_id}
+POST /tasks/{task_id}/revoke
+GET  /tasks/{task_id}/grants
+POST /tasks/{task_id}/grants
+POST /scoped/request
+GET  /agents/{agent_id}/authority
+GET  /authority/graph
+```
+
+The API never accepts a client-supplied grant as proof of authority. The Control Plane resolves effective authority from persisted task/grant state.
 
 ## Development
 
-Run the local demo:
-
-```bash
-python -m controlplane.demo
-```
-
-Run the approval API server locally:
-
-```bash
-python -m controlplane.api_server
-```
-
-Run the complete hardening regression suite:
+Run the full local suite:
 
 ```bash
 pytest -q
 ```
 
-The portable regression suite is run by GitHub Actions and includes the authorization, adversarial, and isolated-worker contract tests. Real-Docker isolation tests are opt-in and skip cleanly when Docker is unavailable.
-
-## Roadmap
-
-### v1 — Authority boundary
-
-- Control Plane identity/capability/risk/policy;
-- human approval;
-- exact request binding;
-- evidence;
-- approval API;
-- cryptographically bound execution authorization;
-- safe Execution Worker.
-
-### v1.1 — Harden the boundary
-
-- **completed:** durable executor metadata across Control Plane restart;
-- **completed:** durable single-use execution nonce consumption;
-- **completed:** request-bound authenticated agent identity prototype;
-- **completed:** adversarial tamper/replay/state-drift regression suite;
-- **completed:** hardened Docker-backed isolated worker baseline;
-- gateway/API identity enforcement;
-- dedicated credential and key management;
-- secret isolation;
-- network egress policy for explicitly authorized integrations;
-- rate and budget controls;
-- stronger asymmetric key management;
-- transactional multi-worker persistence;
-- pinned trusted executor images and image provenance.
-
-### v1.5 — Real integrations
-
-- Git/GitHub execution;
-- filesystem and shell sandboxes;
-- cloud APIs;
-- deployment providers;
-- external tool adapters;
-- richer evidence and verification.
-
-### v2 — Multi-agent control plane
-
-- multiple agent identities;
-- delegated capabilities;
-- agent-to-agent authorization;
-- shared budgets;
-- orchestration policies;
-- policy-as-code;
-- operator UI;
-- organization/workspace controls.
-
-### v3 — Enterprise/autonomous operations
-
-- distributed execution workers;
-- high-assurance audit infrastructure;
-- policy simulation;
-- approval workflows and roles;
-- enterprise identity providers;
-- large-scale multi-agent governance.
-
-## Design principles
-
-1. **ForgeOS is authoritative.** Agents cannot grant themselves authority.
-2. **Approval binds the exact operation.** Changing the request invalidates the authorization.
-3. **Deny is terminal.** A denied operation does not become allowed through agent-side escalation.
-4. **Approval is single-use.** Replays are rejected.
-5. **Evidence is first-class.** Governance decisions and execution results are recorded.
-6. **Fail closed.** Missing or inconsistent authorization data blocks execution.
-7. **Control and execution are separate.** The authority layer decides; the worker executes.
-8. **Alpha remains the governed execution lifecycle.** The Control Plane does not replace it.
-9. **Sensitive capabilities remain outside autonomous agent authority.**
-10. **Security boundaries must be tested, not assumed.**
-11. **Secure defaults should not become permanent limitations.** Additional capabilities must be explicit, scoped, and policy-controlled rather than weakening the baseline.
-
-## Status
-
-ForgeOS is under active development. The `human-approval-v1` branch is the frozen authority milestone; `hardening-v1` is the active implementation track for the next security boundaries.
+The Docker-backed tests are opt-in because they require a usable Docker daemon. Do not grant broad Docker socket access merely to run the normal Python suite.
