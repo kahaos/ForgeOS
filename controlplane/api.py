@@ -108,6 +108,7 @@ class ApprovalAPI:
                 approval_id,
                 approve=decision == "approve",
                 actor=actor,
+                execute=False,
             )
         except KeyError:
             return 409, {"error": "no pending approval"}
