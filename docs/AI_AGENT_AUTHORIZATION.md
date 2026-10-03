@@ -62,3 +62,5 @@ ForgeOS is not intended to replace GitHub, cloud IAM, OAuth, MCP authorization, 
 The current implementation is a prototype. Authentication of the human operator, durable transactional state, production provider adapters, and production identity federation remain roadmap work.
 
 See [the security model](SECURITY_MODEL.md) and [the real-agent quickstart](REAL_AGENT_QUICKSTART.md).
+
+Canonical quickstart reference: `real-agent-quickstart.md` → [REAL_AGENT_QUICKSTART.md](REAL_AGENT_QUICKSTART.md).
