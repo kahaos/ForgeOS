@@ -49,11 +49,15 @@ def test_network_is_disabled(tmp_path: Path):
     result = run_python(
         make_worker(),
         tmp_path,
-        "import socket; socket.create_connection(('1.1.1.1', 443), timeout=2)",
+        "import socket; "
+        "\ntry: "
+        " socket.create_connection(('1.1.1.1', 443), timeout=2)"
+        "\nexcept OSError as exc: "
+        " print(f'ERRNO={exc.errno}')",
     )
 
-    assert result.returncode != 0
-    assert "Network is unreachable" in result.stderr
+    assert result.returncode == 0
+    assert "ERRNO=101" in result.stdout
 
 
 def test_root_filesystem_is_read_only(tmp_path: Path):
