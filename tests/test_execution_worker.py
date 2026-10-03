@@ -18,6 +18,7 @@ def make_approved_request(tmp_path):
         "push",
         target="test-repo",
         detail={"branch": "main"},
+        executor_id="simulated-git-push",
     )
     assert pending["verdict"] == "ask"
     approval_id = pending["approval_id"]
@@ -27,9 +28,9 @@ def make_approved_request(tmp_path):
     return cp, approval_id
 
 
-def make_worker(key=b"forgeos-test-execution-key"):
+def make_worker(cp, key=b"forgeos-test-execution-key"):
     calls: list[dict] = []
-    worker = ExecutionWorker(key)
+    worker = ExecutionWorker(cp, key)
     worker.register_executor(
         "simulated-git-push",
         target="test-repo",
@@ -40,7 +41,7 @@ def make_worker(key=b"forgeos-test-execution-key"):
 
 def test_valid_approval_authorization_executes_once(tmp_path):
     cp, approval_id = make_approved_request(tmp_path)
-    worker, calls = make_worker()
+    worker, calls = make_worker(cp)
     authorizer = ExecutionAuthorizer(cp, b"forgeos-test-execution-key")
 
     authorization = authorizer.issue(approval_id, executor_id="simulated-git-push")
@@ -48,6 +49,7 @@ def test_valid_approval_authorization_executes_once(tmp_path):
 
     assert result == {"status": "completed", "simulated": True}
     assert len(calls) == 1
+    assert cp.approvals[approval_id]["status"] == "completed"
     with pytest.raises(ValueError, match="authorization already consumed"):
         worker.execute(authorization)
     assert len(calls) == 1
@@ -55,7 +57,7 @@ def test_valid_approval_authorization_executes_once(tmp_path):
 
 def test_request_tampering_is_rejected_before_executor(tmp_path):
     cp, approval_id = make_approved_request(tmp_path)
-    worker, calls = make_worker()
+    worker, calls = make_worker(cp)
     authorizer = ExecutionAuthorizer(cp, b"forgeos-test-execution-key")
     authorization = authorizer.issue(approval_id, executor_id="simulated-git-push")
 
@@ -67,7 +69,7 @@ def test_request_tampering_is_rejected_before_executor(tmp_path):
 
 def test_agent_capability_drift_is_rejected_before_executor(tmp_path):
     cp, approval_id = make_approved_request(tmp_path)
-    worker, calls = make_worker()
+    worker, calls = make_worker(cp)
     authorizer = ExecutionAuthorizer(cp, b"forgeos-test-execution-key")
     authorization = authorizer.issue(approval_id, executor_id="simulated-git-push")
 
@@ -79,7 +81,7 @@ def test_agent_capability_drift_is_rejected_before_executor(tmp_path):
 
 def test_signature_mismatch_is_rejected_before_executor(tmp_path):
     cp, approval_id = make_approved_request(tmp_path)
-    worker, calls = make_worker()
+    worker, calls = make_worker(cp)
     authorizer = ExecutionAuthorizer(cp, b"forgeos-test-execution-key")
     authorization = authorizer.issue(approval_id, executor_id="simulated-git-push")
 
@@ -91,7 +93,7 @@ def test_signature_mismatch_is_rejected_before_executor(tmp_path):
 
 def test_expired_authorization_is_rejected_before_executor(tmp_path):
     cp, approval_id = make_approved_request(tmp_path)
-    worker, calls = make_worker()
+    worker, calls = make_worker(cp)
     authorizer = ExecutionAuthorizer(
         cp,
         b"forgeos-test-execution-key",
@@ -106,7 +108,7 @@ def test_expired_authorization_is_rejected_before_executor(tmp_path):
 
 def test_executor_and_target_substitution_are_rejected(tmp_path):
     cp, approval_id = make_approved_request(tmp_path)
-    worker, calls = make_worker()
+    worker, calls = make_worker(cp)
     worker.register_executor(
         "simulated-other-target",
         target="other-repo",
@@ -126,7 +128,7 @@ def test_missing_persisted_executor_binding_fails_closed(tmp_path):
     authorization = authorizer.issue(approval_id, executor_id="simulated-git-push")
 
     restarted_cp = ControlPlane(tmp_path / "controlplane")
-    restarted_worker = ExecutionWorker(b"forgeos-test-execution-key")
+    restarted_worker = ExecutionWorker(restarted_cp, b"forgeos-test-execution-key")
     with pytest.raises(ValueError, match="executor binding unavailable"):
         ExecutionAuthorizer(restarted_cp, b"forgeos-test-execution-key").issue(
             approval_id,
