@@ -5,7 +5,9 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
+
+from .models import ActionRequest
 
 
 @dataclass(frozen=True)
@@ -117,3 +119,42 @@ class DockerIsolatedWorker:
             raise RuntimeError("docker runtime is unavailable") from exc
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError("isolated execution timed out") from exc
+
+
+CommandBuilder = Callable[[ActionRequest], Sequence[str]]
+
+
+class DockerExecutorAdapter:
+    """Adapt an already-authorized ForgeOS request to isolated Docker execution.
+
+    The command builder and workspace are supplied by the trusted executor
+    registration layer. The agent request is input to the builder, but this
+    adapter performs no authorization or policy evaluation of its own.
+    """
+
+    def __init__(
+        self,
+        worker: DockerIsolatedWorker,
+        command_builder: CommandBuilder,
+        workspace: Path,
+    ) -> None:
+        if not callable(command_builder):
+            raise TypeError("command_builder must be callable")
+        self.worker = worker
+        self.command_builder = command_builder
+        self.workspace = Path(workspace).resolve()
+        if not self.workspace.is_dir():
+            raise ValueError("workspace must be an existing directory")
+
+    def __call__(self, request: ActionRequest) -> dict[str, object]:
+        try:
+            result = self.worker.run(self.command_builder(request), self.workspace)
+        except RuntimeError as exc:
+            return {"status": "failed", "error": str(exc)}
+
+        return {
+            "status": "completed" if result.returncode == 0 else "failed",
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
