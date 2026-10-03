@@ -106,13 +106,13 @@ The v1 milestone demonstrated a live Gemini agent calling tools through ForgeOS 
 
 Human approval is bound to the exact request using a deterministic request digest, with agent and policy snapshots recorded in tamper-evident evidence.
 
-The hardened worker boundary now adds restart-safe executor metadata and durable single-use execution nonces. An approved authorization can survive a Control Plane restart, while the executable callable must still be explicitly registered by the live worker process.
+The hardened boundary now has three additional protections: restart-safe executor metadata, durable single-use execution nonces, and a request-bound authenticated-agent identity prototype using HMAC assertions with short lifetimes, audience binding, and replay protection.
 
 ### Current security status
 
 This is still a **development milestone**, not a production security claim.
 
-The current worker uses simulated/safe executors. The next security milestones include authenticated agent identities, isolated worker processes/containers, secret isolation, network egress controls, rate/budget controls, stronger key management, real Git/GitHub/filesystem/shell integrations, and adversarial testing.
+The current worker uses simulated/safe executors. The next security milestones include wiring authenticated identity into the gateway/API, dedicated credential/key management, isolated worker processes/containers, secret isolation, network egress controls, rate/budget controls, real Git/GitHub/filesystem/shell integrations, and adversarial testing.
 
 No real financial spending or real secret retrieval is enabled by this milestone.
 
@@ -127,6 +127,7 @@ controlplane/
   models.py              Agent and action models
   policy.py              Capability and policy evaluation
   approval.py            Exact-request digest/binding helpers
+  agent_identity.py      Request-bound agent authentication prototype
   store.py               Authoritative ControlPlane state/evidence
   evidence.py            Tamper-evident evidence chain
   api.py                 Approval API adapter
@@ -141,6 +142,7 @@ tests/
   test_execution_worker.py Worker boundary tests
   test_controlplane_http.py HTTP API integration test
   test_hardening_persistence.py Restart/replay hardening tests
+  test_agent_identity.py Agent authentication tests
 
 docs/superpowers/
   specs/                 Approved architecture specifications
@@ -190,10 +192,11 @@ PYTHONPATH=. pytest \
   tests/test_controlplane_api.py \
   tests/test_controlplane_http.py \
   tests/test_execution_worker.py \
-  tests/test_hardening_persistence.py -q
+  tests/test_hardening_persistence.py \
+  tests/test_agent_identity.py -q
 ```
 
-The latest GitHub Actions verification completed with **38 tests passing**.
+The latest GitHub Actions verification completed with **45 tests passing**.
 
 ## Roadmap
 
@@ -211,12 +214,14 @@ The latest GitHub Actions verification completed with **38 tests passing**.
 
 - **completed:** durable executor metadata across Control Plane restart;
 - **completed:** durable single-use execution nonce consumption;
-- authenticated agent identities;
+- **completed:** request-bound authenticated agent identity prototype;
+- gateway/API identity enforcement;
+- dedicated credential and key management;
 - isolated worker process/container;
 - secret isolation;
 - network egress policy;
 - rate and budget controls;
-- stronger key management;
+- stronger asymmetric key management;
 - transactional multi-worker persistence.
 
 ### v1.5 — Real integrations
