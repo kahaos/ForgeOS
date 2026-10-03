@@ -19,24 +19,13 @@ class GeminiForgeOSAdapter:
             "type": "function",
             "name": "create_test_file",
             "description": "Create a harmless text file inside the disposable ForgeOS test workspace.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-                "required": ["name", "content"],
-            },
+            "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "content": {"type": "string"}}, "required": ["name", "content"]},
         },
         {
             "type": "function",
             "name": "read_test_file",
             "description": "Read a text file from the disposable ForgeOS test workspace.",
-            "parameters": {
-                "type": "object",
-                "properties": {"name": {"type": "string"}},
-                "required": ["name"],
-            },
+            "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
         },
         {
             "type": "function",
@@ -47,17 +36,13 @@ class GeminiForgeOSAdapter:
         {
             "type": "function",
             "name": "git_push",
-            "description": "Request a Git push. ForgeOS should require approval.",
-            "parameters": {
-                "type": "object",
-                "properties": {"target": {"type": "string"}},
-                "required": ["target"],
-            },
+            "description": "Request a simulated Git push. ForgeOS requires human approval before the test executor runs.",
+            "parameters": {"type": "object", "properties": {"target": {"type": "string"}}, "required": ["target"]},
         },
         {
             "type": "function",
             "name": "read_secrets",
-            "description": "Request access to secrets. ForgeOS controls whether this can proceed.",
+            "description": "Request simulated secret access. No real secret is returned by this test adapter.",
             "parameters": {"type": "object", "properties": {}},
         },
         {
@@ -99,12 +84,7 @@ class GeminiForgeOSAdapter:
         }
         key = mapping.get(name)
         if key is None:
-            return self.controlplane.request(
-                self.agent_id,
-                "unknown",
-                name,
-                detail=arguments,
-            )
+            return self.controlplane.request(self.agent_id, "unknown", name, detail=arguments)
 
         tool, action = key
         target = str(arguments.get("name") or arguments.get("target") or "")
@@ -116,6 +96,10 @@ class GeminiForgeOSAdapter:
             detail=arguments,
             executor=lambda req: self._safe_execute(name, req.detail),
         )
+
+    def approve(self, approval_id: str, approve: bool, actor: str = "human") -> dict[str, Any]:
+        """Fulfil one pending approval using the executor bound to its request."""
+        return self.controlplane.decide(approval_id, approve=approve, actor=actor)
 
     def _safe_execute(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name == "create_test_file":
@@ -134,8 +118,12 @@ class GeminiForgeOSAdapter:
         if name == "run_safe_command":
             return {"status": "completed", "stdout": "forgeos-test\n"}
 
-        # These names should never execute without a future, explicit executor
-        # implementation and the appropriate ForgeOS policy/approval layer.
+        if name == "git_push":
+            return {"status": "completed", "simulated": True, "operation": "git_push", "target": arguments.get("target", "")}
+
+        if name == "read_secrets":
+            return {"status": "completed", "simulated": True, "secret_returned": False}
+
         return {"status": "blocked_executor", "tool": name}
 
     @staticmethod
