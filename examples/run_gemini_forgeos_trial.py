@@ -22,18 +22,31 @@ FORGEOS_TOOLS = [
     "git_push",
     "request_action",
 ]
+TRIAL_TASK_ID = "real-agent-website-build"
+TRIAL_AGENT_ID = "website-agent"
 
 
 def build_gemini_settings(workspace: str | Path, server_script: str) -> dict[str, Any]:
     """Return the minimal Gemini settings needed for a ForgeOS-only trial."""
-    workspace = str(Path(workspace).resolve())
+    workspace_path = Path(workspace).resolve()
+    root = workspace_path.parent
     return {
         "mcp": {"allowed": ["forgeos"]},
         "mcpServers": {
             "forgeos": {
                 "command": sys.executable,
-                "args": [server_script],
-                "cwd": workspace,
+                "args": [
+                    server_script,
+                    "--workspace",
+                    str(workspace_path),
+                    "--state-dir",
+                    str(root / "state"),
+                    "--task-id",
+                    TRIAL_TASK_ID,
+                    "--agent-id",
+                    TRIAL_AGENT_ID,
+                ],
+                "cwd": str(workspace_path),
                 "trust": True,
                 "includeTools": list(FORGEOS_TOOLS),
             }
