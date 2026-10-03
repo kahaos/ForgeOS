@@ -14,6 +14,8 @@ SCOPED_POLICY_VERSION = "controlplane-scoped-authority-1.0"
 REQUIRED = {
     ("filesystem", "read"): "FS_READ",
     ("filesystem", "write"): "FS_WRITE",
+    ("test", "run"): "TEST_RUN",
+    ("git", "status"): "GIT_READ",
     ("git", "commit"): "GIT_COMMIT",
     ("git", "push"): "GIT_PUSH",
     ("github", "read"): "GITHUB_READ",
