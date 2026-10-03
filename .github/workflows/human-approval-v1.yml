@@ -6,6 +6,8 @@ on:
       - human-approval-v1
       - hardening-v1
       - scoped-authority-v1
+      - real-agent-discovery-v1
+      - real-agent-mcp-v1
   pull_request:
     branches:
       - hardening-v1

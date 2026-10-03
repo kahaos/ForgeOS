@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from fnmatch import fnmatchcase
+from pathlib import Path
 from typing import Any, Mapping
 
 
@@ -34,6 +35,23 @@ def _utc(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def resolve_workspace_path(workspace: str | Path, relative: str) -> Path:
+    """Resolve a workspace-relative path and reject escapes from the workspace.
+
+    This is shared by policy and the local executor so the authorization boundary
+    and execution boundary apply exactly the same path-containment rule.
+    """
+    if not isinstance(relative, str) or not relative:
+        raise ValueError("workspace path is required")
+    root = Path(workspace).resolve()
+    candidate = (root / relative).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("path is outside workspace") from exc
+    return candidate
 
 
 def _request_value(request: Any, dimension: str) -> str:
