@@ -40,15 +40,7 @@ class ControlPlane:
         self.evidence.append("agent.registered", agent.to_dict())
         return agent
 
-    def request(
-        self,
-        agent_id: str,
-        tool: str,
-        action: str,
-        target: str = "",
-        detail: dict | None = None,
-        executor: Executor | None = None,
-    ) -> dict[str, Any]:
+    def request(self, agent_id: str, tool: str, action: str, target: str = "", detail: dict | None = None, executor: Executor | None = None) -> dict[str, Any]:
         if agent_id not in self.agents:
             event = self.evidence.append("action.denied", {"agent_id": agent_id, "reason": "unknown agent"})
             return {"verdict": "deny", "reason": "unknown agent", "evidence": event["digest"]}
@@ -59,10 +51,7 @@ class ControlPlane:
 
         if decision.verdict == "allow":
             result = executor(req) if executor is not None else self._execute(req)
-            event = self.evidence.append(
-                "action.allowed",
-                {"request": req.to_dict(), "result": result, "reason": decision.reason},
-            )
+            event = self.evidence.append("action.allowed", {"request": req.to_dict(), "result": result, "reason": decision.reason})
             return {"verdict": "allow", "reason": decision.reason, "result": result, "evidence": event["digest"]}
 
         if decision.verdict == "deny":
@@ -87,27 +76,14 @@ class ControlPlane:
         self._approval_executors[approval_id] = bound_executor
         self._save()
         event = self.evidence.append("approval.requested", self._evidence_payload(record))
-        return {
-            "verdict": "ask",
-            "reason": decision.reason,
-            "approval_id": approval_id,
-            "request_digest": record["request_digest"],
-            "evidence": event["digest"],
-        }
+        return {"verdict": "ask", "reason": decision.reason, "approval_id": approval_id, "request_digest": record["request_digest"], "evidence": event["digest"]}
 
-    def decide(
-        self,
-        approval_id: str,
-        approve: bool,
-        actor: str = "human",
-        executor: Executor | None = None,
-    ) -> dict[str, Any]:
+    def decide(self, approval_id: str, approve: bool, actor: str = "human", executor: Executor | None = None) -> dict[str, Any]:
         record = self.approvals.get(approval_id)
         if not record or record["status"] != "pending":
             raise KeyError(f"no pending approval {approval_id}")
 
         self._validate_binding(record)
-
         bound_executor = self._approval_executors.get(approval_id)
         if executor is not None and bound_executor is not executor:
             raise ValueError("executor binding mismatch")
@@ -125,7 +101,9 @@ class ControlPlane:
 
         record["status"] = "approved"
         self._save()
-        approved_event = self.evidence.append("approval.approved", self._evidence_payload(record))
+        approved_payload = self._evidence_payload(record)
+        approved_event = self.evidence.append("approval.approved", approved_payload)
+        self.evidence.append("approval.granted", approved_payload)
 
         req = ActionRequest(**record["request"])
         try:
@@ -134,18 +112,12 @@ class ControlPlane:
             record["status"] = "failed"
             record["error"] = str(exc)
             self._save()
-            self.evidence.append(
-                "approval.execution_failed",
-                {**self._evidence_payload(record), "error": str(exc)},
-            )
+            self.evidence.append("approval.execution_failed", {**self._evidence_payload(record), "error": str(exc)})
             raise
 
         record["status"] = "completed"
         self._save()
-        executed_event = self.evidence.append(
-            "approval.executed",
-            {**self._evidence_payload(record), "result": result},
-        )
+        executed_event = self.evidence.append("approval.executed", {**self._evidence_payload(record), "result": result})
         return {
             "verdict": "allow",
             "reason": "human approved",
@@ -161,42 +133,23 @@ class ControlPlane:
 
     def snapshot(self) -> dict[str, Any]:
         events = self.evidence.all()
-        return {
-            "agents": [a.to_dict() for a in self.agents.values()],
-            "pending": self.pending(),
-            "evidence_ok": self.evidence.verify(),
-            "events": len(events),
-            "recent": events[-8:],
-        }
+        return {"agents": [a.to_dict() for a in self.agents.values()], "pending": self.pending(), "evidence_ok": self.evidence.verify(), "events": len(events), "recent": events[-8:]}
 
     def _validate_binding(self, record: dict[str, Any]) -> None:
         request = ActionRequest(**record["request"])
         if request_digest(request) != record["request_digest"]:
             raise ValueError("approval request digest mismatch")
-
         agent = self.agents.get(request.agent_id)
         if agent is None or agent_snapshot(agent) != record["agent_snapshot"]:
             raise ValueError("approval agent snapshot mismatch")
-
         if record["policy_version"] != POLICY_VERSION:
             raise ValueError("approval policy version mismatch")
-
         if not str(record.get("execution_binding_id", "")).startswith("exec_"):
             raise ValueError("approval execution binding mismatch")
 
     @staticmethod
     def _evidence_payload(record: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "approval_id": record["id"],
-            "request_digest": record["request_digest"],
-            "request": record["request"],
-            "agent_snapshot": record["agent_snapshot"],
-            "policy_version": record["policy_version"],
-            "status": record["status"],
-            "actor": record.get("actor"),
-            "created_at": record["created_at"],
-            "decided_at": record.get("decided_at"),
-        }
+        return {"approval_id": record["id"], "request_digest": record["request_digest"], "request": record["request"], "agent_snapshot": record["agent_snapshot"], "policy_version": record["policy_version"], "status": record["status"], "actor": record.get("actor"), "created_at": record["created_at"], "decided_at": record.get("decided_at")}
 
     def _execute(self, req: ActionRequest) -> dict[str, Any]:
         return {"tool": req.tool, "action": req.action, "target": req.target, "status": "completed"}
