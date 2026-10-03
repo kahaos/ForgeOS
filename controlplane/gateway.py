@@ -1,0 +1,144 @@
+"""Provider-neutral runtime gateway for task-scoped agent actions."""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any, Protocol
+
+from .approval import agent_snapshot, request_digest
+from .execution_worker import ExecutionAuthorizer, ExecutionWorker
+from .models import ActionRequest
+from .policy import POLICY_VERSION, evaluate_scoped
+from .store import ControlPlane, Executor
+
+
+class ToolAdapter(Protocol):
+    def __call__(self, request: ActionRequest) -> dict[str, Any]: ...
+
+
+class RuntimeGateway:
+    """Route agent actions through the Control Plane and signed execution boundary."""
+
+    def __init__(self, controlplane: ControlPlane, worker: ExecutionWorker, key: bytes) -> None:
+        self.controlplane = controlplane
+        self.worker = worker
+        self.authorizer = ExecutionAuthorizer(controlplane, key)
+        self.adapters: dict[str, tuple[str, ToolAdapter]] = {}
+
+    def register_adapter(self, executor_id: str, target: str, adapter: ToolAdapter) -> None:
+        self.worker.register_executor(executor_id, target, adapter)
+        self.adapters[executor_id] = (target, adapter)
+
+    def request(
+        self,
+        task_id: str,
+        agent_id: str,
+        tool: str,
+        action: str,
+        target: str,
+        detail: dict[str, Any] | None = None,
+        executor_id: str | None = None,
+    ) -> dict[str, Any]:
+        request = ActionRequest(agent_id, tool, action, target, detail or {})
+        agent = self.controlplane.agents.get(agent_id)
+        task = self.controlplane.tasks.get(task_id)
+        grants = self.controlplane.effective_grants(task_id, agent_id) if task else []
+        if agent is None:
+            return {"verdict": "deny", "reason": "unknown agent", "task_id": task_id}
+        decision = evaluate_scoped(agent, task, grants, request)
+        if decision.verdict == "deny":
+            return self.controlplane._scoped_denial(request, decision.reason, task_id)
+
+        resolved_executor_id = executor_id or f"{tool}:{action}"
+        adapter_entry = self.adapters.get(resolved_executor_id)
+        if adapter_entry is None:
+            return {"verdict": "deny", "reason": "unknown executor", "task_id": task_id, "grant_id": decision.grant_id}
+        target_binding, adapter = adapter_entry
+        if target_binding != target:
+            return {"verdict": "deny", "reason": "executor target mismatch", "task_id": task_id, "grant_id": decision.grant_id}
+
+        if decision.verdict == "ask":
+            return self.controlplane.request_scoped(
+                task_id, agent_id, tool, action, target, detail,
+                executor=adapter, executor_id=resolved_executor_id,
+            )
+
+        # Auto-approved work still receives a short-lived signed authorization.
+        grant = self.controlplane.grants[decision.grant_id]
+        approval_id = "auto_" + uuid.uuid4().hex[:12]
+        record = {
+            "id": approval_id,
+            "status": "approved",
+            "request": request.to_dict(),
+            "request_digest": request_digest(request),
+            "agent_snapshot": agent_snapshot(agent),
+            "policy_version": POLICY_VERSION,
+            "task_id": task_id,
+            "grant_id": grant.grant_id,
+            "grant_snapshot": grant.to_dict(),
+            "created_at": self.controlplane._now() if hasattr(self.controlplane, "_now") else None,
+            "reason": decision.reason,
+            "actor": "policy",
+            "decided_at": self.controlplane._now() if hasattr(self.controlplane, "_now") else None,
+            "execution_binding_id": "exec_" + uuid.uuid4().hex[:12],
+            "executor_id": resolved_executor_id,
+        }
+        record["created_at"] = record["created_at"] or __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+        record["decided_at"] = record["decided_at"] or record["created_at"]
+        self.controlplane.approvals[approval_id] = record
+        self.controlplane._approval_executors[approval_id] = adapter
+        self.controlplane._save()
+        self.controlplane.evidence.append("scoped.approval.auto_granted", self.controlplane._evidence_payload(record))
+
+        authorization = self.authorizer.issue(approval_id, resolved_executor_id)
+        result = self.worker.execute(authorization)
+        return {
+            "verdict": "allow",
+            "reason": decision.reason,
+            "task_id": task_id,
+            "grant_id": grant.grant_id,
+            "authorization": authorization.to_dict(),
+            "result": result,
+        }
+
+
+class SimulatedToolAdapter:
+    """Safe adapter useful for demos and tests."""
+
+    def __init__(self, label: str = "simulated") -> None:
+        self.label = label
+        self.calls: list[dict[str, Any]] = []
+
+    def __call__(self, request: ActionRequest) -> dict[str, Any]:
+        self.calls.append(request.to_dict())
+        return {"status": "completed", "simulated": True, "adapter": self.label, "target": request.target}
+
+
+class GitHubAdapterBoundary:
+    """Provider boundary; credentials stay in the provider adapter, not agent code."""
+
+    def __init__(self, handler: Executor) -> None:
+        self.handler = handler
+
+    def __call__(self, request: ActionRequest) -> dict[str, Any]:
+        return self.handler(request)
+
+
+class HttpToolAdapterBoundary:
+    """Generic HTTP/tool boundary for future provider-specific credential handling."""
+
+    def __init__(self, handler: Executor) -> None:
+        self.handler = handler
+
+    def __call__(self, request: ActionRequest) -> dict[str, Any]:
+        return self.handler(request)
+
+
+class MCPToolAdapterBoundary:
+    """MCP-oriented tool boundary; policy remains in the ForgeOS Control Plane."""
+
+    def __init__(self, handler: Executor) -> None:
+        self.handler = handler
+
+    def __call__(self, request: ActionRequest) -> dict[str, Any]:
+        return self.handler(request)
