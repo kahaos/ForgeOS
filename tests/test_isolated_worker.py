@@ -152,3 +152,21 @@ def test_docker_executor_adapter_represents_runtime_failure_as_failure(tmp_path:
         "status": "failed",
         "error": "isolated execution timed out",
     }
+
+
+def test_docker_executor_adapter_represents_invalid_execution_as_failure(tmp_path: Path):
+    class FakeWorker:
+        def run(self, command, workspace):
+            raise ValueError("command must be a sequence of arguments, not a shell string")
+
+    request = ActionRequest("agent-1", "test", "run", target="test-target")
+    adapter = DockerExecutorAdapter(
+        FakeWorker(),
+        command_builder=lambda _: "python -c 'print(1)'",
+        workspace=tmp_path,
+    )
+
+    assert adapter(request) == {
+        "status": "failed",
+        "error": "command must be a sequence of arguments, not a shell string",
+    }
