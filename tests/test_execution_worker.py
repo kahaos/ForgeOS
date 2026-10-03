@@ -98,7 +98,7 @@ def test_docker_executor_executes_only_after_authorization(tmp_path):
 
     result = worker.execute(authorization)
 
-    assert result["result"]["status"] == "completed"
+    assert result["status"] == "completed"
     assert calls == [(["git", "push", "main"], workspace)]
     assert cp.approvals[approval_id]["status"] == "completed"
 
