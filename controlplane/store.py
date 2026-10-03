@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .evidence import EvidenceLog
 from .models import ActionRequest, Agent
@@ -30,7 +30,15 @@ class ControlPlane:
         self.evidence.append("agent.registered", agent.to_dict())
         return agent
 
-    def request(self, agent_id: str, tool: str, action: str, target: str = "", detail: dict | None = None) -> dict[str, Any]:
+    def request(
+        self,
+        agent_id: str,
+        tool: str,
+        action: str,
+        target: str = "",
+        detail: dict | None = None,
+        executor: Callable[[ActionRequest], dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         if agent_id not in self.agents:
             event = self.evidence.append("action.denied", {"agent_id": agent_id, "reason": "unknown agent"})
             return {"verdict": "deny", "reason": "unknown agent", "evidence": event["digest"]}
@@ -38,7 +46,7 @@ class ControlPlane:
         req = ActionRequest(agent_id, tool, action, target, detail or {})
         decision = evaluate(agent, req)
         if decision.verdict == "allow":
-            result = self._execute(req)
+            result = executor(req) if executor is not None else self._execute(req)
             event = self.evidence.append("action.allowed", {"request": req.to_dict(), "result": result, "reason": decision.reason})
             return {"verdict": "allow", "reason": decision.reason, "result": result, "evidence": event["digest"]}
         if decision.verdict == "deny":
@@ -51,7 +59,13 @@ class ControlPlane:
         event = self.evidence.append("approval.requested", record)
         return {"verdict": "ask", "reason": decision.reason, "approval_id": approval_id, "evidence": event["digest"]}
 
-    def decide(self, approval_id: str, approve: bool, actor: str = "human") -> dict[str, Any]:
+    def decide(
+        self,
+        approval_id: str,
+        approve: bool,
+        actor: str = "human",
+        executor: Callable[[ActionRequest], dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         record = self.approvals.get(approval_id)
         if not record or record["status"] != "pending":
             raise KeyError(f"no pending approval {approval_id}")
@@ -62,7 +76,7 @@ class ControlPlane:
             event = self.evidence.append("approval.denied", record)
             return {"verdict": "deny", "reason": "human denied", "evidence": event["digest"]}
         req = ActionRequest(**record["request"])
-        result = self._execute(req)
+        result = executor(req) if executor is not None else self._execute(req)
         event = self.evidence.append("approval.granted", {"approval": record, "result": result})
         return {"verdict": "allow", "reason": "human approved", "result": result, "evidence": event["digest"]}
 
