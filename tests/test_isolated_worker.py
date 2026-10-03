@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from controlplane.isolated_worker import DockerIsolatedWorker, IsolationProfile
+from controlplane.isolated_worker import DockerExecutorAdapter, DockerIsolatedWorker, IsolationProfile
+from controlplane.models import ActionRequest
 
 
 def test_hardened_profile_defaults_to_no_network_and_read_only():
@@ -91,3 +92,63 @@ def test_run_fails_closed_when_docker_is_unavailable(tmp_path: Path, monkeypatch
 
     with pytest.raises(RuntimeError, match="docker runtime is unavailable"):
         worker.run(["python", "-c", "print('ok')"], workspace=tmp_path)
+
+
+def test_docker_executor_adapter_returns_structured_success(tmp_path: Path):
+    class FakeWorker:
+        def run(self, command, workspace):
+            assert command == ["python", "-c", "print('ok')"]
+            assert workspace == tmp_path
+            return subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr="")
+
+    request = ActionRequest("agent-1", "test", "run", target="test-target")
+    adapter = DockerExecutorAdapter(
+        FakeWorker(),
+        command_builder=lambda _: ["python", "-c", "print('ok')"],
+        workspace=tmp_path,
+    )
+
+    assert adapter(request) == {
+        "status": "completed",
+        "returncode": 0,
+        "stdout": "ok\n",
+        "stderr": "",
+    }
+
+
+def test_docker_executor_adapter_represents_nonzero_exit_as_failure(tmp_path: Path):
+    class FakeWorker:
+        def run(self, command, workspace):
+            return subprocess.CompletedProcess(command, 7, stdout="", stderr="boom\n")
+
+    request = ActionRequest("agent-1", "test", "run", target="test-target")
+    adapter = DockerExecutorAdapter(
+        FakeWorker(),
+        command_builder=lambda _: ["python", "-c", "raise SystemExit(7)"],
+        workspace=tmp_path,
+    )
+
+    assert adapter(request) == {
+        "status": "failed",
+        "returncode": 7,
+        "stdout": "",
+        "stderr": "boom\n",
+    }
+
+
+def test_docker_executor_adapter_represents_runtime_failure_as_failure(tmp_path: Path):
+    class FakeWorker:
+        def run(self, command, workspace):
+            raise RuntimeError("isolated execution timed out")
+
+    request = ActionRequest("agent-1", "test", "run", target="test-target")
+    adapter = DockerExecutorAdapter(
+        FakeWorker(),
+        command_builder=lambda _: ["python", "-c", "while True: pass"],
+        workspace=tmp_path,
+    )
+
+    assert adapter(request) == {
+        "status": "failed",
+        "error": "isolated execution timed out",
+    }
