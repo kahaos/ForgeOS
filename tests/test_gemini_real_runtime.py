@@ -47,7 +47,7 @@ def test_gemini_mcp_server_command_has_no_shell_or_credentials(tmp_path: Path) -
     )
 
     assert command[0].endswith("python") or command[0].endswith("python3")
-    assert "forgeos_gemini_mcp_server.py" in command
+    assert any(item.endswith("forgeos_gemini_mcp_server.py") for item in command)
     assert "real-agent-website-build" in command
     assert "website-agent" in command
     serialized = json.dumps(command).lower()
