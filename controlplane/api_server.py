@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -62,10 +63,11 @@ def _make_handler(api: ApprovalAPI) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
-def serve(root: str, host: str = "127.0.0.1", port: int = 8520) -> None:
-    """Run the local development approval API."""
+def serve(root: str, host: str = "127.0.0.1", port: int = 8520, operator_id: str | None = None) -> None:
+    """Run the local development approval API with a server-bound operator principal."""
     controlplane = ControlPlane(root)
-    server = ApprovalHTTPServer((host, port), ApprovalAPI(controlplane))
+    resolved_operator = operator_id or os.environ.get("FORGEOS_OPERATOR_ID")
+    server = ApprovalHTTPServer((host, port), ApprovalAPI(controlplane, operator_id=resolved_operator))
     try:
         server.serve_forever()
     finally:
