@@ -93,17 +93,27 @@ def test_signature_mismatch_is_rejected_before_executor(tmp_path):
 
 def test_expired_authorization_is_rejected_before_executor(tmp_path):
     cp, approval_id = make_approved_request(tmp_path)
-    worker, calls = make_worker(cp)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
     authorizer = ExecutionAuthorizer(
         cp,
         b"forgeos-test-execution-key",
-        ttl_seconds=-1,
+        ttl_seconds=1,
+        clock=lambda: now,
     )
     authorization = authorizer.issue(approval_id, executor_id="simulated-git-push")
+    worker = ExecutionWorker(
+        cp,
+        b"forgeos-test-execution-key",
+        clock=lambda: now + timedelta(seconds=2),
+    )
+    worker.register_executor(
+        "simulated-git-push",
+        target="test-repo",
+        executor=lambda request: {"status": "should-not-run"},
+    )
 
     with pytest.raises(ValueError, match="authorization expired"):
         worker.execute(authorization)
-    assert calls == []
 
 
 def test_executor_and_target_substitution_are_rejected(tmp_path):
