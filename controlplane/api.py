@@ -97,6 +97,12 @@ class ApprovalAPI:
         if not isinstance(actor, str) or not actor:
             return 400, {"error": "invalid request"}
 
+        record = self.controlplane.approvals.get(approval_id)
+        if record is None:
+            return 404, {"error": "approval not found"}
+        if record.get("status") != "pending":
+            return 409, {"error": "no pending approval"}
+
         try:
             result = self.controlplane.decide(
                 approval_id,
@@ -104,7 +110,7 @@ class ApprovalAPI:
                 actor=actor,
             )
         except KeyError:
-            return 404, {"error": "approval not found"}
+            return 409, {"error": "no pending approval"}
         except ValueError:
             return 409, {"error": "approval binding rejected"}
         return 200, result
