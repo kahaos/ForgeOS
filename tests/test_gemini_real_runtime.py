@@ -33,6 +33,7 @@ def test_write_gemini_settings_creates_only_forgeos_mcp(tmp_path: Path) -> None:
         "git_push",
         "request_action",
     ]
+    assert settings["mcpServers"]["forgeos"]["trust"] is True
     assert settings["tools"]["core"] == []
     assert settings["security"]["disableYoloMode"] is True
     assert settings["security"]["disableAlwaysAllow"] is True
