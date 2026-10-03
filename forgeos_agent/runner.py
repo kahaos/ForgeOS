@@ -6,11 +6,13 @@ from .policy import check_path, check_command
 from .evidence import record
 from .github_workspace import GitHubWorkspace
 from .sandbox import build_execution, SandboxError
+from controlplane import ControlPlane
 
 class RunManager:
     def __init__(self, root, github_integration):
         self.root=Path(root); self.github=github_integration
         self.path=self.root/'data'/'agent_runs.json'; self.path.parent.mkdir(parents=True,exist_ok=True)
+        self.controlplane=ControlPlane(self.root/'data'/'controlplane')
     def _load(self): return json.loads(self.path.read_text()) if self.path.exists() else {}
     def _save(self,d):
         tmp=self.path.with_suffix('.tmp'); tmp.write_text(json.dumps(d,indent=2,sort_keys=True)); os.replace(tmp,self.path)
@@ -24,30 +26,44 @@ class RunManager:
         data=AgentRun(run_id,project.project_id,task,contract.base_commit,str(dest),contract.github_owner,contract.github_repo,contract.base_branch,contract.allowed_paths,contract.forbidden_paths,contract.required_stages).__dict__.copy()
         data['allowed_commands']=['pytest','python','python3','npm','node']
         data['state']='READY'
+        self.controlplane.register(f'run:{run_id}',owner=project.project_id,capabilities=['FS_READ','FS_WRITE','SHELL'],risk_level='medium')
         db=self._load(); db[run_id]=data; self._save(db); return data
     def tool(self, run, tool, args):
         source=Path(run['workspace'])
+        agent_id=f"run:{run['run_id']}"
         if tool=='read_file':
-            ok,why=check_path(args.get('path'),run['allowed_paths'],run['forbidden_paths'])
-            if not ok: raise PermissionError(why)
-            p=assert_within(source/args['path'],source); return {'content':p.read_text(encoding='utf-8')}
+            def execute(_req):
+                ok,why=check_path(args.get('path'),run['allowed_paths'],run['forbidden_paths'])
+                if not ok: raise PermissionError(why)
+                p=assert_within(source/args['path'],source); return {'content':p.read_text(encoding='utf-8')}
+            gate=self.controlplane.request(agent_id,'filesystem','read',args.get('path',''),{'tool_args':args},executor=execute)
+            if gate['verdict']!='allow': raise PermissionError(gate['reason'])
+            return gate['result']
         if tool=='write_file':
-            ok,why=check_path(args.get('path'),run['allowed_paths'],run['forbidden_paths'])
-            if not ok: raise PermissionError(why)
-            p=assert_within(source/args['path'],source); p.parent.mkdir(parents=True,exist_ok=True); p.write_text(args.get('content',''),encoding='utf-8')
-            if args['path'] not in run['changed_files']: run['changed_files'].append(args['path'])
-            self._persist(run); return {'ok':True}
+            def execute(_req):
+                ok,why=check_path(args.get('path'),run['allowed_paths'],run['forbidden_paths'])
+                if not ok: raise PermissionError(why)
+                p=assert_within(source/args['path'],source); p.parent.mkdir(parents=True,exist_ok=True); p.write_text(args.get('content',''),encoding='utf-8')
+                if args['path'] not in run['changed_files']: run['changed_files'].append(args['path'])
+                self._persist(run); return {'ok':True}
+            gate=self.controlplane.request(agent_id,'filesystem','write',args.get('path',''),{'tool_args':args},executor=execute)
+            if gate['verdict']!='allow': raise PermissionError(gate['reason'])
+            return gate['result']
         if tool=='run_command':
-            ok,why=check_command(args.get('command'),run.get('allowed_commands',[]))
-            if not ok: raise PermissionError(why)
-            try:
-                argv, env = build_execution(args['command'], source, self.root)
-            except SandboxError as e:
-                raise PermissionError(str(e))
-            p=subprocess.run(argv,cwd=source,shell=False,text=True,capture_output=True,timeout=300,env=env)
-            ev=record(self.root,run['run_id'],'COMMAND',{'command':args['command'],'returncode':p.returncode,'stdout':p.stdout,'stderr':p.stderr},'command execution')
-            run['evidence_ids'].append(ev['evidence_id']); self._persist(run)
-            return {'returncode':p.returncode,'stdout':p.stdout,'stderr':p.stderr,'evidence':ev}
+            def execute(_req):
+                ok,why=check_command(args.get('command'),run.get('allowed_commands',[]))
+                if not ok: raise PermissionError(why)
+                try:
+                    argv, env = build_execution(args['command'], source, self.root)
+                except SandboxError as e:
+                    raise PermissionError(str(e))
+                p=subprocess.run(argv,cwd=source,shell=False,text=True,capture_output=True,timeout=300,env=env)
+                ev=record(self.root,run['run_id'],'COMMAND',{'command':args['command'],'returncode':p.returncode,'stdout':p.stdout,'stderr':p.stderr},'command execution')
+                run['evidence_ids'].append(ev['evidence_id']); self._persist(run)
+                return {'returncode':p.returncode,'stdout':p.stdout,'stderr':p.stderr,'evidence':ev}
+            gate=self.controlplane.request(agent_id,'shell','exec',args.get('command',''),{'tool_args':args},executor=execute)
+            if gate['verdict']!='allow': raise PermissionError(gate['reason'])
+            return gate['result']
         if tool in ('approve_release','deploy_production'): raise PermissionError('HUMAN_ONLY_OPERATION')
         raise KeyError('UNKNOWN_TOOL')
     def finalize(self,run):
@@ -69,11 +85,7 @@ class RunManager:
             'required_stages','state','verdict','approval',
             'changed_files','evidence_ids'
         }
-        github_run = AgentRun(**{
-            k: run[k]
-            for k in model_fields
-            if k in run
-        })
+        github_run = AgentRun(**{k: run[k] for k in model_fields if k in run})
         sha=GitHubWorkspace(self.root/'agent_workspaces',self.github.provider).create_branch_commit_push(github_run,branch,title)
         pr=self.github.provider.create_pull_request(run['owner'],run['repo'],title,branch,run['branch'],body)
         run['return_branch']=branch; run['commit_sha']=sha; run['pull_request']=pr; run['state']='PR_CREATED'; self._persist(run); return run
