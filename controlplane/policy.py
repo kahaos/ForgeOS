@@ -61,12 +61,7 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def evaluate_scoped(
-    agent: Agent,
-    task: Task | None,
-    grants: Sequence[CapabilityGrant],
-    request: ActionRequest,
-) -> object:
+def evaluate_scoped(agent: Agent, task: Task | None, grants: Sequence[CapabilityGrant], request: ActionRequest) -> object:
     from .authority import AuthorityDecision
 
     if task is None:
@@ -82,12 +77,16 @@ def evaluate_scoped(
     if (request.tool, request.action) in HARD_DENY:
         return AuthorityDecision("deny", f"{needed} is hard-denied by policy", request, task_id=task.task_id)
 
-    matching = [g for g in grants if g.capability == needed and g.active(_now()) and g.scope.matches(request)]
+    matching = [g for g in grants if g.capability == needed and g.policy_version == POLICY_VERSION and g.active(_now()) and g.scope.matches(request)]
     if not matching:
         return AuthorityDecision("deny", f"no scoped authority for {needed}", request, task_id=task.task_id)
 
     grant = sorted(matching, key=lambda item: item.grant_id)[0]
-    if (request.tool, request.action) in ASK:
+    key = (request.tool, request.action)
+    branch = str(request.detail.get("branch", ""))
+    production_branch = branch in {"main", "master", "production"}
+    consequential = key in {("deploy", "production"), ("secrets", "read"), ("policy", "modify"), ("agent", "create"), ("funds", "spend")}
+    if consequential or (key == ("git", "push") and production_branch):
         return AuthorityDecision("ask", f"{needed} present within scope; human approval required", request, grant.grant_id, task.task_id)
     if agent.risk_level in ("high", "critical") and request.tool in ("git", "deploy", "shell"):
         return AuthorityDecision("ask", f"{needed} present within scope; agent risk requires approval", request, grant.grant_id, task.task_id)
