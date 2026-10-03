@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from controlplane.authority import CapabilityGrant, Scope, Task
+from controlplane.authority import Scope
 from controlplane.models import ActionRequest
 from controlplane.store import ControlPlane
 
@@ -16,7 +17,7 @@ FUTURE = (NOW + timedelta(hours=4)).isoformat()
 def make_cp(tmp_path):
     cp = ControlPlane(tmp_path / "controlplane")
     cp.register("builder", owner="human", capabilities=["GIT_PUSH", "GIT_COMMIT"])
-    cp.register("seo", owner="human", capabilities=["GIT_COMMIT"])
+    cp.register("seo", owner="human", capabilities=["GIT_COMMIT", "GIT_PUSH"])
     return cp
 
 
@@ -64,8 +65,9 @@ def test_wrong_repository_and_branch_are_denied(tmp_path):
 
 def test_expired_and_revoked_authority_denies(tmp_path):
     cp = make_cp(tmp_path)
-    task = cp.create_task("expired", "human", "expired", expires_at=(NOW - timedelta(minutes=1)).isoformat())
-    cp.issue_grant("expired", "builder", "GIT_PUSH", {"tool": "git", "action": "push", "repository": "company/site"}, "human", expires_at=FUTURE)
+    task = cp.create_task("expired", "human", "expired", expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat())
+    cp.tasks["expired"] = replace(task, status="expired")
+    cp.issue_grant("expired", "builder", "GIT_PUSH", {"tool": "git", "action": "push", "repository": "company/site"}, "human", expires_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat())
     result = cp.request_scoped("expired", "builder", "git", "push", "company/site", {})
     assert result["verdict"] == "deny"
 
@@ -82,7 +84,7 @@ def test_delegation_can_only_attenuate_scope_and_expiry(tmp_path):
         parent.grant_id,
         child_agent_id="seo",
         scope={"tool": "git", "action": "push", "repository": "company/site", "branch": "feature/seo"},
-        expires_at=(NOW + timedelta(hours=1)).isoformat(),
+        expires_at=(datetime.now(timezone.utc) + timedelta(minutes=20)).isoformat(),
         issued_by="builder",
     )
     assert child.parent_grant_id == parent.grant_id
@@ -107,7 +109,7 @@ def test_delegation_widening_is_rejected(tmp_path):
 
 def test_self_grant_is_rejected(tmp_path):
     cp = make_cp(tmp_path)
-    task = cp.create_task("self", "human", "self grant", expires_at=FUTURE)
+    cp.create_task("self", "human", "self grant", expires_at=FUTURE)
     with pytest.raises(ValueError, match="cannot self-grant"):
         cp.issue_grant("self", "builder", "GIT_PUSH", {"tool": "git", "action": "push", "repository": "company/site"}, "builder", expires_at=FUTURE)
 
