@@ -45,6 +45,22 @@ def test_trial_runtime_registers_only_governed_executors(tmp_path: Path) -> None
     assert "shell:exec" not in runtime["gateway"].adapters
 
 
+def test_git_status_is_allowed_inside_repository_scope(tmp_path: Path) -> None:
+    runtime = build_trial_runtime(tmp_path)
+    result = runtime["gateway"].request(
+        runtime["task_id"],
+        runtime["agent_id"],
+        "git",
+        "status",
+        str(runtime["repository"]),
+        {"repository": str(runtime["repository"])},
+        executor_id="git:status",
+    )
+
+    assert result["verdict"] == "allow"
+    assert result["result"]["status"] == "completed"
+
+
 def test_feature_push_executes_but_main_push_is_asked(tmp_path: Path) -> None:
     runtime = build_trial_runtime(tmp_path)
     gateway = runtime["gateway"]
@@ -77,7 +93,7 @@ def test_feature_push_executes_but_main_push_is_asked(tmp_path: Path) -> None:
         executor_id="git:push",
     )
     assert main["verdict"] == "ask"
-    assert main["result"] if "result" in main else True
+    assert "result" not in main
 
 
 def test_secret_request_creates_approval_without_exposing_secret(tmp_path: Path) -> None:
@@ -94,5 +110,5 @@ def test_secret_request_creates_approval_without_exposing_secret(tmp_path: Path)
 
     assert result["verdict"] == "ask"
     approval = runtime["controlplane"].approvals[result["approval_id"]]
-    assert "secret" not in str(approval).lower() or "trial-secrets" in str(approval)
+    assert "secret material" not in str(approval).lower()
     assert approval["status"] == "pending"
