@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .authority import resolve_workspace_path
 from .models import ActionRequest
 
 
@@ -21,14 +22,7 @@ class _WorkspaceBound:
         self.workspace.mkdir(parents=True, exist_ok=True)
 
     def _path(self, relative: str) -> Path:
-        if not isinstance(relative, str) or not relative:
-            raise ValueError("workspace path is required")
-        candidate = (self.workspace / relative).resolve()
-        try:
-            candidate.relative_to(self.workspace)
-        except ValueError as exc:
-            raise ValueError("path is outside workspace") from exc
-        return candidate
+        return resolve_workspace_path(self.workspace, relative)
 
 
 class SafeWorkspaceAdapter(_WorkspaceBound):
