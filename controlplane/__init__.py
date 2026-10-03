@@ -1,11 +1,17 @@
-"""ForgeOS 1.0 — agent control plane.
+"""ForgeOS AI Agent Control Plane public primitives."""
 
-Agents never touch tools directly. Every action goes:
-
-    agent → gateway → policy → (approval) → tool → evidence
-"""
-
+from .authority import CapabilityGrant, Scope, Task
+from .gateway import RuntimeGateway
 from .models import Agent, ActionRequest, Decision
 from .store import ControlPlane
 
-__all__ = ["Agent", "ActionRequest", "Decision", "ControlPlane"]
+__all__ = [
+    "Agent",
+    "ActionRequest",
+    "Decision",
+    "ControlPlane",
+    "Task",
+    "Scope",
+    "CapabilityGrant",
+    "RuntimeGateway",
+]
