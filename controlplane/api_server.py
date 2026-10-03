@@ -70,3 +70,7 @@ def serve(root: str, host: str = "127.0.0.1", port: int = 8520) -> None:
         server.serve_forever()
     finally:
         server.server_close()
+
+
+if __name__ == "__main__":
+    serve("data/controlplane")
