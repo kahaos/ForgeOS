@@ -61,7 +61,7 @@ def test_git_status_is_allowed_inside_repository_scope(tmp_path: Path) -> None:
     assert result["result"]["status"] == "completed"
 
 
-def test_feature_push_executes_but_main_push_is_asked(tmp_path: Path) -> None:
+def test_feature_push_executes_but_main_push_is_denied(tmp_path: Path) -> None:
     runtime = build_trial_runtime(tmp_path)
     gateway = runtime["gateway"]
     task_id = runtime["task_id"]
@@ -92,7 +92,7 @@ def test_feature_push_executes_but_main_push_is_asked(tmp_path: Path) -> None:
         {"repository": str(repo), "branch": "main"},
         executor_id="git:push",
     )
-    assert main["verdict"] == "ask"
+    assert main["verdict"] == "deny"
     assert "result" not in main
 
 
