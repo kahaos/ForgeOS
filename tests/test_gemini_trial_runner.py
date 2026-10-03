@@ -7,6 +7,7 @@ from examples.run_gemini_forgeos_trial import (
     FORGEOS_TOOLS,
     build_gemini_settings,
     build_gemini_command,
+    build_trial_environment,
     prepare_trial,
 )
 
@@ -66,3 +67,17 @@ def test_prepare_trial_creates_complete_isolated_runtime(tmp_path: Path) -> None
     settings = json.loads(paths.settings.read_text(encoding="utf-8"))
     assert settings["mcpServers"]["forgeos"]["includeTools"] == FORGEOS_TOOLS
     assert settings["mcpServers"]["forgeos"]["cwd"] == str(paths.workspace)
+
+
+def test_trial_environment_strips_provider_credentials(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "redacted-test-value")
+    monkeypatch.setenv("GOOGLE_API_KEY", "redacted-test-value")
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/tmp/test-creds.json")
+
+    environment = build_trial_environment(tmp_path)
+
+    assert "GEMINI_API_KEY" not in environment
+    assert "GOOGLE_API_KEY" not in environment
+    assert "GOOGLE_APPLICATION_CREDENTIALS" not in environment
+    assert environment["HOME"] == str(tmp_path.resolve() / "home")
+    assert environment["GEMINI_CLI_HOME"] == str(tmp_path.resolve() / "gemini-home")
