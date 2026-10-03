@@ -51,7 +51,7 @@ def test_build_command_contains_isolation_controls(tmp_path: Path):
     assert "--mount" in argv
     assert "type=bind" in argv[argv.index("--mount") + 1]
     assert "readonly" not in argv[argv.index("--mount") + 1]
-    assert argv[-4:] == ["python", "-c", "print('ok')", ""]
+    assert argv[-3:] == ["python", "-c", "print('ok')"]
 
 
 def test_build_command_rejects_shell_string(tmp_path: Path):
