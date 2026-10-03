@@ -132,21 +132,21 @@ def test_executor_and_target_substitution_are_rejected(tmp_path):
     assert calls == []
 
 
-def test_missing_persisted_executor_binding_fails_closed(tmp_path):
+def test_persisted_executor_binding_survives_restart_but_callable_must_be_registered(tmp_path):
     cp, approval_id = make_approved_request(tmp_path)
     authorizer = ExecutionAuthorizer(cp, b"forgeos-test-execution-key")
     authorization = authorizer.issue(approval_id, executor_id="simulated-git-push")
 
     restarted_cp = ControlPlane(tmp_path / "controlplane")
-    restarted_worker = ExecutionWorker(restarted_cp, b"forgeos-test-execution-key")
-    with pytest.raises(ValueError, match="executor binding unavailable"):
-        ExecutionAuthorizer(restarted_cp, b"forgeos-test-execution-key").issue(
-            approval_id,
-            executor_id=authorization.executor_id,
-        )
+    restarted_authorization = ExecutionAuthorizer(restarted_cp, b"forgeos-test-execution-key").issue(
+        approval_id,
+        executor_id=authorization.executor_id,
+    )
+    assert restarted_authorization.executor_id == authorization.executor_id
 
+    restarted_worker = ExecutionWorker(restarted_cp, b"forgeos-test-execution-key")
     with pytest.raises(ValueError, match="unknown executor"):
-        restarted_worker.execute(authorization)
+        restarted_worker.execute(restarted_authorization)
 
 
 def test_authorization_expiry_is_utc_bound(tmp_path):
@@ -157,4 +157,5 @@ def test_authorization_expiry_is_utc_bound(tmp_path):
     issued = datetime.fromisoformat(authorization.issued_at)
     expires = datetime.fromisoformat(authorization.expires_at)
     assert issued.tzinfo == timezone.utc
+    assert expires.tzinfo == timezone.utc
     assert expires - issued == timedelta(seconds=60)
