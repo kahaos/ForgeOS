@@ -185,10 +185,11 @@ The v1 CI suite covers:
 - hard denies;
 - approval evidence;
 - API routing and malformed input;
+- real HTTP approval API routing;
 - authorization signing;
 - expiry;
 - replay protection;
 - executor/target binding;
 - worker fail-closed behaviour.
 
-The latest verified v1 regression run completed with **34 tests passing**.
+The latest verified v1 regression run completed with **35 tests passing**.
