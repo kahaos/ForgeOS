@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from controlplane.local_adapters import SafeWorkspaceAdapter
 from examples.forgeos_gemini_mcp_server import build_trial_runtime
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SERVER_SCRIPT = PROJECT_ROOT / "examples" / "forgeos_gemini_mcp_server.py"
 
 
 def test_workspace_adapter_rejects_path_escape(tmp_path: Path) -> None:
@@ -112,3 +118,54 @@ def test_secret_request_creates_approval_without_exposing_secret(tmp_path: Path)
     approval = runtime["controlplane"].approvals[result["approval_id"]]
     assert "secret material" not in str(approval).lower()
     assert approval["status"] == "pending"
+
+
+def test_real_mcp_launcher_exposes_only_fixed_tools(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    state_dir = tmp_path / "state"
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            str(SERVER_SCRIPT),
+            "--workspace",
+            str(workspace),
+            "--state-dir",
+            str(state_dir),
+            "--task-id",
+            "real-agent-website-build",
+            "--agent-id",
+            "website-agent",
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+
+    initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+    process.stdin.write(json.dumps(initialize) + "\n")
+    process.stdin.flush()
+    response = json.loads(process.stdout.readline())
+    assert response["result"]["serverInfo"]["name"] == "forgeos-control-plane"
+
+    tools = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
+    process.stdin.write(json.dumps(tools) + "\n")
+    process.stdin.flush()
+    response = json.loads(process.stdout.readline())
+    names = {tool["name"] for tool in response["result"]["tools"]}
+    assert names == {
+        "read_file",
+        "write_file",
+        "run_test",
+        "git_status",
+        "git_commit",
+        "git_push",
+        "request_action",
+    }
+    assert "shell" not in names
+
+    process.stdin.close()
+    process.terminate()
+    process.wait(timeout=5)
