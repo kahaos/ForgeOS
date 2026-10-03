@@ -60,3 +60,5 @@ The repository contains scoped multi-agent authority and execution-boundary hard
 Continue with [AI agent authorization](AI_AGENT_AUTHORIZATION.md) and [the real-agent quickstart](REAL_AGENT_QUICKSTART.md).
 
 Canonical quickstart reference: `real-agent-quickstart.md` → [REAL_AGENT_QUICKSTART.md](REAL_AGENT_QUICKSTART.md).
+
+Prototype status: this is a security-focused prototype; production multi-agent deployment requires additional identity, persistence, provider, and operational hardening.
