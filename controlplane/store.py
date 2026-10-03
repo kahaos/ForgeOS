@@ -54,15 +54,7 @@ class ControlPlane:
         self.evidence.append("agent.registered", agent.to_dict())
         return agent
 
-    def create_task(
-        self,
-        task_id: str,
-        owner: str,
-        purpose: str,
-        expires_at: str,
-        parent_task_id: str | None = None,
-        human_context: dict[str, Any] | None = None,
-    ) -> Task:
+    def create_task(self, task_id: str, owner: str, purpose: str, expires_at: str, parent_task_id: str | None = None, human_context: dict[str, Any] | None = None) -> Task:
         if task_id in self.tasks:
             raise ValueError("task already exists")
         task = Task(task_id, owner, purpose, "active", _now(), expires_at, parent_task_id, human_context or {})
@@ -83,16 +75,7 @@ class ControlPlane:
         self.evidence.append("task.revoked", {**updated.to_dict(), "actor": actor})
         return updated
 
-    def issue_grant(
-        self,
-        task_id: str,
-        agent_id: str,
-        capability: str,
-        scope: dict[str, Any] | Scope,
-        issued_by: str,
-        expires_at: str,
-        parent_grant_id: str | None = None,
-    ) -> CapabilityGrant:
+    def issue_grant(self, task_id: str, agent_id: str, capability: str, scope: dict[str, Any] | Scope, issued_by: str, expires_at: str, parent_grant_id: str | None = None) -> CapabilityGrant:
         task = self.tasks.get(task_id)
         if task is None:
             raise KeyError("task not found")
@@ -102,6 +85,8 @@ class ControlPlane:
             raise ValueError("unknown agent")
         if issued_by == agent_id:
             raise ValueError("agent cannot self-grant")
+        if parent_grant_id is None and issued_by in self.agents:
+            raise ValueError("agent cannot issue grants directly")
         resolved_scope = scope if isinstance(scope, Scope) else Scope.from_dict(scope)
         if datetime.fromisoformat(expires_at).astimezone(timezone.utc) > datetime.fromisoformat(task.expires_at).astimezone(timezone.utc):
             raise ValueError("grant expiry exceeds task expiry")
@@ -117,18 +102,7 @@ class ControlPlane:
                 raise ValueError("requested authority is outside parent grant scope")
             if datetime.fromisoformat(expires_at).astimezone(timezone.utc) > datetime.fromisoformat(parent.expires_at).astimezone(timezone.utc):
                 raise ValueError("delegated grant expiry exceeds parent grant")
-        grant = CapabilityGrant(
-            grant_id="gr_" + uuid.uuid4().hex[:12],
-            task_id=task_id,
-            agent_id=agent_id,
-            capability=capability,
-            scope=resolved_scope,
-            issued_by=issued_by,
-            issued_at=_now(),
-            expires_at=expires_at,
-            policy_version=POLICY_VERSION,
-            parent_grant_id=parent_grant_id,
-        )
+        grant = CapabilityGrant("gr_" + uuid.uuid4().hex[:12], task_id, agent_id, capability, resolved_scope, issued_by, _now(), expires_at, POLICY_VERSION, parent_grant_id)
         self.grants[grant.grant_id] = grant
         if parent_grant_id is not None:
             self.agent_relationships.append({"parent_agent_id": issued_by, "child_agent_id": agent_id, "task_id": task_id, "parent_grant_id": parent_grant_id, "grant_id": grant.grant_id})
@@ -136,14 +110,7 @@ class ControlPlane:
         self.evidence.append("authority.granted", grant.to_dict())
         return grant
 
-    def delegate_grant(
-        self,
-        parent_grant_id: str,
-        child_agent_id: str,
-        scope: dict[str, Any] | Scope,
-        expires_at: str,
-        issued_by: str,
-    ) -> CapabilityGrant:
+    def delegate_grant(self, parent_grant_id: str, child_agent_id: str, scope: dict[str, Any] | Scope, expires_at: str, issued_by: str) -> CapabilityGrant:
         parent = self.grants.get(parent_grant_id)
         if parent is None:
             raise KeyError("parent grant not found")
@@ -153,11 +120,7 @@ class ControlPlane:
         grant = self.grants.get(grant_id)
         if grant is None:
             raise KeyError(grant_id)
-        revoked = CapabilityGrant(
-            grant.grant_id, grant.task_id, grant.agent_id, grant.capability, grant.scope,
-            grant.issued_by, grant.issued_at, grant.expires_at, grant.policy_version,
-            grant.parent_grant_id, status="revoked",
-        )
+        revoked = CapabilityGrant(grant.grant_id, grant.task_id, grant.agent_id, grant.capability, grant.scope, grant.issued_by, grant.issued_at, grant.expires_at, grant.policy_version, grant.parent_grant_id, status="revoked")
         self.grants[grant_id] = revoked
         self._save()
         self.evidence.append("authority.revoked", {**revoked.to_dict(), "actor": actor})
@@ -166,17 +129,7 @@ class ControlPlane:
     def effective_grants(self, task_id: str, agent_id: str) -> list[CapabilityGrant]:
         return [g for g in self.grants.values() if g.task_id == task_id and g.agent_id == agent_id and g.active()]
 
-    def request_scoped(
-        self,
-        task_id: str,
-        agent_id: str,
-        tool: str,
-        action: str,
-        target: str = "",
-        detail: dict[str, Any] | None = None,
-        executor: Executor | None = None,
-        executor_id: str | None = None,
-    ) -> dict[str, Any]:
+    def request_scoped(self, task_id: str, agent_id: str, tool: str, action: str, target: str = "", detail: dict[str, Any] | None = None, executor: Executor | None = None, executor_id: str | None = None) -> dict[str, Any]:
         req = ActionRequest(agent_id, tool, action, target, detail or {})
         agent = self.agents.get(agent_id)
         task = self.tasks.get(task_id)
@@ -195,21 +148,7 @@ class ControlPlane:
         resolved_executor_id = executor_id or f"{tool}:{action}"
         if executor_id is not None:
             self.register_executor(executor_id, target)
-        record = {
-            "id": approval_id,
-            "status": "pending",
-            "request": req.to_dict(),
-            "request_digest": request_digest(req),
-            "agent_snapshot": agent_snapshot(agent),
-            "policy_version": POLICY_VERSION,
-            "task_id": task_id,
-            "grant_id": grant_id,
-            "grant_snapshot": self.grants[grant_id].to_dict() if grant_id else None,
-            "created_at": _now(),
-            "reason": decision.reason,
-            "execution_binding_id": binding_id,
-            "executor_id": resolved_executor_id,
-        }
+        record = {"id": approval_id, "status": "pending", "request": req.to_dict(), "request_digest": request_digest(req), "agent_snapshot": agent_snapshot(agent), "policy_version": POLICY_VERSION, "task_id": task_id, "grant_id": grant_id, "grant_snapshot": self.grants[grant_id].to_dict() if grant_id else None, "created_at": _now(), "reason": decision.reason, "execution_binding_id": binding_id, "executor_id": resolved_executor_id}
         self.approvals[approval_id] = record
         self._approval_executors[approval_id] = executor or self._execute
         self._save()
@@ -231,16 +170,7 @@ class ControlPlane:
         self._save()
         return binding
 
-    def request(
-        self,
-        agent_id: str,
-        tool: str,
-        action: str,
-        target: str = "",
-        detail: dict | None = None,
-        executor: Executor | None = None,
-        executor_id: str | None = None,
-    ) -> dict[str, Any]:
+    def request(self, agent_id: str, tool: str, action: str, target: str = "", detail: dict | None = None, executor: Executor | None = None, executor_id: str | None = None) -> dict[str, Any]:
         if agent_id not in self.agents:
             event = self.evidence.append("action.denied", {"agent_id": agent_id, "reason": "unknown agent"})
             return {"verdict": "deny", "reason": "unknown agent", "evidence": event["digest"]}
@@ -260,11 +190,7 @@ class ControlPlane:
         resolved_executor_id = executor_id or f"{tool}:{action}"
         if executor_id is not None:
             self.register_executor(executor_id, target)
-        record = {
-            "id": approval_id, "status": "pending", "request": req.to_dict(), "request_digest": request_digest(req),
-            "agent_snapshot": agent_snapshot(agent), "policy_version": POLICY_VERSION, "created_at": _now(),
-            "reason": decision.reason, "execution_binding_id": binding_id, "executor_id": resolved_executor_id,
-        }
+        record = {"id": approval_id, "status": "pending", "request": req.to_dict(), "request_digest": request_digest(req), "agent_snapshot": agent_snapshot(agent), "policy_version": POLICY_VERSION, "created_at": _now(), "reason": decision.reason, "execution_binding_id": binding_id, "executor_id": resolved_executor_id}
         self.approvals[approval_id] = record
         self._approval_executors[approval_id] = bound_executor
         self._save()
