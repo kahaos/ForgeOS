@@ -146,7 +146,13 @@ To try the isolated worker itself, install Docker and run:
 python examples/isolated_worker_demo.py
 ```
 
-GitHub Codespaces can be used for the Python test suite; the Docker-backed worker additionally requires a usable Docker daemon, which is not automatically provided merely because the development environment is a Codespace.
+For the real-Docker isolation regression suite, explicitly opt in on a host with a usable Docker daemon:
+
+```bash
+FORGEOS_DOCKER_TESTS=1 pytest tests/test_isolated_worker_docker.py -q
+```
+
+GitHub Codespaces can be used for the normal Python test suite; the Docker-backed worker additionally requires a usable Docker daemon, which is not automatically provided merely because the development environment is a Codespace.
 
 ## Licensing
 
@@ -165,7 +171,7 @@ controlplane/
   api.py                 Approval API adapter
   api_server.py          Standard-library HTTP server
   execution_worker.py    Bound authorization + governed worker
-  isolated_worker.py     Hardened Docker execution boundary
+  isolated_worker.py     Hardened Docker execution boundary + adapter
   gemini_adapter.py      Gemini tool adapter
   gemini_test/           Live Gemini integration test
 
@@ -177,6 +183,7 @@ tests/
   test_agent_identity.py Agent authentication tests
   test_adversarial_hardening.py Adversarial tamper/replay/state tests
   test_isolated_worker.py Isolated worker security contract tests
+  test_isolated_worker_docker.py Opt-in real-Docker isolation tests
 
 examples/
   isolated_worker_demo.py Safe Docker worker demonstration
@@ -227,7 +234,7 @@ Run the complete hardening regression suite:
 pytest -q
 ```
 
-The intended hardening test suite currently contains **76 passing tests** on the VPS verification environment. The repository also contains older root-level patch tests that are intentionally outside normal pytest discovery.
+The portable regression suite is run by GitHub Actions and includes the authorization, adversarial, and isolated-worker contract tests. Real-Docker isolation tests are opt-in and skip cleanly when Docker is unavailable.
 
 ## Roadmap
 
