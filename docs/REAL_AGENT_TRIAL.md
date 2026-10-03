@@ -18,7 +18,7 @@ The trial exercises:
 - signed governed execution
 - append-only evidence
 
-Gemini is configured with only the ForgeOS MCP server, an explicit tool allowlist, isolated CLI state, no built-in Gemini tools, and no provider credentials in the prompt or MCP configuration. Gemini's MCP documentation supports `mcp.allowed`, per-server `includeTools`, and a `trust` setting; this trial uses `trust: true` specifically so ForgeOS is the sole tool-execution gate rather than stacking a second confirmation dialog on top of ForgeOS. urlGemini CLI MCP configurationhttps://geminicli.com/docs/tools/mcp-server/
+Gemini is configured with only the ForgeOS MCP server, an explicit tool allowlist, isolated CLI state, no built-in Gemini tools, and no provider credentials in the prompt or MCP configuration. Gemini's MCP documentation supports `mcp.allowed`, per-server `includeTools`, and a `trust` setting; this trial keeps `trust: false` so the MCP server is not treated as inherently trusted by Gemini, while ForgeOS remains the authoritative policy and approval boundary for tool execution. urlGemini CLI MCP configurationhttps://geminicli.com/docs/tools/mcp-server/
 
 ## What it deliberately does not do
 
@@ -44,31 +44,32 @@ This is intentional. The next stage is the disposable GitHub repository trial wi
 
 ## Prepare the disposable Gemini trial
 
-From the ForgeOS repository root:
+The runner now performs the preparation step itself. From the ForgeOS repository root:
 
 ```bash
-TRIAL=/opt/forgeos/gemini-controlplane-trial
-rm -rf "$TRIAL"
-mkdir -p "$TRIAL"
-
-.venv/bin/python - <<'PY'
-from pathlib import Path
-from examples.run_gemini_forgeos_trial import build_mcp_server_command, write_gemini_settings
-
-root = Path("/opt/forgeos/gemini-controlplane-trial")
-server = Path.cwd() / "examples" / "forgeos_gemini_mcp_server.py"
-write_gemini_settings(root, str(server))
-print("settings:", root / "workspace/.gemini/settings.json")
-print("server:", build_mcp_server_command(
-    workspace=root / "workspace",
-    state_dir=root / "state",
-    task_id="real-agent-website-build",
-    agent_id="website-agent",
-))
-PY
+.venv/bin/python examples/run_gemini_forgeos_trial.py --prepare-only
 ```
 
-The generated project configuration binds the MCP server to the disposable workspace and state directory. It contains no provider API key, token, or secret.
+By default this prepares:
+
+```text
+/opt/forgeos/gemini-controlplane-trial/
+├── workspace/
+│   └── .gemini/settings.json
+├── state/
+├── home/
+└── gemini-home/
+```
+
+The generated project configuration binds the MCP server to the disposable workspace and state directory. It contains no provider API key, token, or secret. The runner also removes `GEMINI_API_KEY`, `GOOGLE_API_KEY`, and `GOOGLE_APPLICATION_CREDENTIALS` from the Gemini process environment so provider credentials from the operator shell are not inherited by the trial.
+
+Use `--trial-root` to select another disposable location:
+
+```bash
+.venv/bin/python examples/run_gemini_forgeos_trial.py \
+  --trial-root /opt/forgeos/gemini-controlplane-trial \
+  --prepare-only
+```
 
 ## Launch Gemini
 
@@ -78,29 +79,19 @@ First verify the CLI is the expected installation:
 gemini --version
 ```
 
-Then launch only after the MCP boundary suite is green:
+Then launch the complete trial:
 
 ```bash
-cd /opt/forgeos
+cd /opt/forgeos/hardening-v1-trial
 
-TRIAL=/opt/forgeos/gemini-controlplane-trial
-
-HOME="$TRIAL/home" \
-GEMINI_CLI_HOME="$TRIAL/gemini-home" \
-GEMINI_CLI_TRUST_WORKSPACE=true \
-  gemini \
-    --approval-mode default \
-    --extensions none \
-    --output-format text \
-    --include-directories "$TRIAL/workspace" \
-    "$(.venv/bin/python - <<'PY'
-from examples.run_gemini_forgeos_trial import build_trial_prompt
-print(build_trial_prompt('/opt/forgeos/gemini-controlplane-trial/workspace'))
-PY
-)"
+/opt/forgeos/.venv/bin/python \
+  examples/run_gemini_forgeos_trial.py \
+  --trial-root /opt/forgeos/gemini-controlplane-trial
 ```
 
-Do **not** use Gemini YOLO mode for this trial. The intended authority chain is:
+Do **not** use Gemini YOLO mode for this trial. The runner uses `--approval-mode default`, disables built-in Gemini tools, and exposes only the seven ForgeOS MCP tools.
+
+The intended authority chain is:
 
 ```text
 Gemini
@@ -110,6 +101,8 @@ Gemini
   -> ExecutionWorker
   -> disposable workspace / local Git remote
 ```
+
+For authentication, Gemini CLI's normal Google sign-in can be used interactively. In headless operation, Gemini's documentation supports API-key or Vertex AI authentication; any such credential should remain outside the repository and trial settings. urlGemini CLI authentication setuphttps://geminicli.com/docs/get-started/authentication/
 
 ## Expected evidence
 
@@ -128,4 +121,4 @@ At minimum, capture:
 
 ## Current status
 
-The MCP server, stdio transport, session binding, real local adapters, Gemini launch configuration, and boundary tests are implemented. The remaining external validation is to run Gemini itself on the VPS and capture the observed autonomous website build. The GitHub disposable-repository trial follows that validation.
+The MCP server, stdio transport, session binding, real local adapters, executable Gemini trial harness, isolated runtime preparation, and boundary tests are implemented. The remaining external validation is to run the executable harness on the VPS and capture the observed autonomous website build. The GitHub disposable-repository trial follows that validation.
