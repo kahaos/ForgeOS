@@ -34,7 +34,7 @@ def build_gemini_settings(workspace: str | Path, server_script: str) -> dict[str
                 "command": sys.executable,
                 "args": [server_script],
                 "cwd": workspace,
-                "trust": False,
+                "trust": True,
                 "includeTools": list(FORGEOS_TOOLS),
             }
         },
