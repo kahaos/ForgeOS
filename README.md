@@ -6,7 +6,7 @@ ForgeOS is an open-source **AI agent control plane** for authorization, human ap
 
 > **Agent autonomy should not mean unrestricted authority.**
 
-[Try the real-agent trial](docs/REAL_AGENT_QUICKSTART.md) · [Read the security model](docs/SECURITY_MODEL.md) · [Explore the architecture](docs/FORGEOS_ARCHITECTURE.md) · [See the roadmap](docs/ROADMAP.md)
+[Why ForgeOS?](docs/WHY_FORGEOS.md) · [Try the real-agent trial](docs/REAL_AGENT_QUICKSTART.md) · [Read the security model](docs/SECURITY_MODEL.md) · [Explore the architecture](docs/FORGEOS_ARCHITECTURE.md) · [See the roadmap](docs/ROADMAP.md)
 
 ## Why ForgeOS?
 
