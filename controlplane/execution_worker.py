@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from .approval import agent_snapshot, request_digest
+from .isolated_worker import DockerExecutorAdapter
 from .models import ActionRequest
 from .policy import POLICY_VERSION
 from .store import ControlPlane
@@ -139,6 +140,15 @@ class ExecutionWorker:
             raise ValueError("executor_id and target are required")
         self.controlplane.register_executor(executor_id, target)
         self.executors[executor_id] = (target, executor)
+
+    def register_docker_executor(
+        self,
+        executor_id: str,
+        target: str,
+        executor: DockerExecutorAdapter,
+    ) -> None:
+        """Register a Docker adapter behind the normal authorization gate."""
+        self.register_executor(executor_id, target, executor)
 
     def execute(self, authorization: ExecutionAuthorization) -> dict[str, Any]:
         self._verify_signature(authorization)
