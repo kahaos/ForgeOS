@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from .approval import agent_snapshot, request_digest
+from .authority import Scope
 from .isolated_worker import DockerExecutorAdapter
 from .models import ActionRequest
 from .policy import POLICY_VERSION
@@ -46,6 +47,9 @@ class ExecutionAuthorization:
     expires_at: str
     nonce: str
     signature: str
+    task_snapshot: dict[str, Any] | None = None
+    grant_snapshot: dict[str, Any] | None = None
+    scope_snapshot: dict[str, str] | None = None
 
     def unsigned_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -59,13 +63,7 @@ class ExecutionAuthorization:
 class ExecutionAuthorizer:
     """Issue short-lived execution authorizations from approved requests."""
 
-    def __init__(
-        self,
-        controlplane: ControlPlane,
-        key: bytes,
-        ttl_seconds: int = 60,
-        clock: Callable[[], datetime] | None = None,
-    ) -> None:
+    def __init__(self, controlplane: ControlPlane, key: bytes, ttl_seconds: int = 60, clock: Callable[[], datetime] | None = None) -> None:
         if not key:
             raise ValueError("execution authorization key is required")
         if ttl_seconds <= 0:
@@ -79,12 +77,10 @@ class ExecutionAuthorizer:
         record = self.controlplane.approvals.get(approval_id)
         if not record or record.get("status") != "approved":
             raise ValueError("approval is not approved")
-
         try:
             self.controlplane._validate_binding(record)
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
-
         binding = self.controlplane.executors.get(executor_id)
         if binding is None:
             raise ValueError("executor binding unavailable")
@@ -93,8 +89,20 @@ class ExecutionAuthorizer:
         request = ActionRequest(**record["request"])
         if binding.get("target") != request.target:
             raise ValueError("executor target mismatch")
-
         snapshot = record["agent_snapshot"]
+        task_snapshot = None
+        grant_snapshot = None
+        scope_snapshot = None
+        if record.get("task_id") is not None:
+            task = self.controlplane.tasks.get(record["task_id"])
+            grant = self.controlplane.grants.get(record.get("grant_id"))
+            if task is None or grant is None:
+                raise ValueError("scoped authority unavailable")
+            if not task.active() or not grant.active():
+                raise ValueError("scoped authority is no longer active")
+            task_snapshot = task.to_dict()
+            grant_snapshot = grant.to_dict()
+            scope_snapshot = grant.scope.to_dict()
         issued = self.clock().astimezone(timezone.utc)
         expires = issued + timedelta(seconds=self.ttl_seconds)
         authorization = ExecutionAuthorization(
@@ -103,31 +111,25 @@ class ExecutionAuthorizer:
             request_digest=request_digest(request),
             agent_snapshot=snapshot,
             agent_snapshot_digest=_sha256(snapshot),
-            policy_version=POLICY_VERSION,
+            policy_version=record.get("policy_version", POLICY_VERSION),
             executor_id=executor_id,
             target=request.target,
             issued_at=issued.isoformat(),
             expires_at=expires.isoformat(),
             nonce=secrets.token_hex(32),
             signature="",
+            task_snapshot=task_snapshot,
+            grant_snapshot=grant_snapshot,
+            scope_snapshot=scope_snapshot,
         )
-        signature = hmac.new(
-            self.key,
-            _canonical(authorization.unsigned_dict()),
-            hashlib.sha256,
-        ).hexdigest()
+        signature = hmac.new(self.key, _canonical(authorization.unsigned_dict()), hashlib.sha256).hexdigest()
         return ExecutionAuthorization(**{**authorization.to_dict(), "signature": signature})
 
 
 class ExecutionWorker:
     """Validate an execution authorization before invoking a registered executor."""
 
-    def __init__(
-        self,
-        controlplane: ControlPlane,
-        key: bytes,
-        clock: Callable[[], datetime] | None = None,
-    ) -> None:
+    def __init__(self, controlplane: ControlPlane, key: bytes, clock: Callable[[], datetime] | None = None) -> None:
         if not key:
             raise ValueError("execution authorization key is required")
         self.controlplane = controlplane
@@ -141,35 +143,24 @@ class ExecutionWorker:
         self.controlplane.register_executor(executor_id, target)
         self.executors[executor_id] = (target, executor)
 
-    def register_docker_executor(
-        self,
-        executor_id: str,
-        target: str,
-        executor: DockerExecutorAdapter,
-    ) -> None:
-        """Register a Docker adapter behind the normal authorization gate."""
+    def register_docker_executor(self, executor_id: str, target: str, executor: DockerExecutorAdapter) -> None:
         self.register_executor(executor_id, target, executor)
 
     def execute(self, authorization: ExecutionAuthorization) -> dict[str, Any]:
         self._verify_signature(authorization)
         self._verify_time(authorization)
-
         record = self.controlplane.approvals.get(authorization.approval_id)
         if record is None:
             raise ValueError("approval is not executable")
-
         if not self.controlplane.consume_execution_nonce(authorization.nonce):
             raise ValueError("authorization already consumed")
-
         if record.get("status") != "approved":
             raise ValueError("approval is not executable")
-
         request = ActionRequest(**authorization.request)
         if request_digest(request) != authorization.request_digest:
             raise ValueError("request digest mismatch")
         if record.get("request_digest") != authorization.request_digest:
             raise ValueError("approval request digest mismatch")
-
         agent = self.controlplane.agents.get(request.agent_id)
         if agent is None or agent_snapshot(agent) != authorization.agent_snapshot:
             raise ValueError("agent snapshot mismatch")
@@ -184,23 +175,37 @@ class ExecutionWorker:
         if request.target != authorization.target:
             raise ValueError("target binding mismatch")
 
+        if authorization.task_snapshot is not None:
+            task_id = record.get("task_id")
+            task = self.controlplane.tasks.get(task_id)
+            grant = self.controlplane.grants.get(record.get("grant_id"))
+            if task is None or grant is None or not task.active() or not grant.active():
+                raise ValueError("scoped authority is no longer active")
+            if task.to_dict() != authorization.task_snapshot:
+                raise ValueError("task snapshot mismatch")
+            if grant.to_dict() != authorization.grant_snapshot:
+                raise ValueError("grant snapshot mismatch")
+            if grant.scope.to_dict() != authorization.scope_snapshot:
+                raise ValueError("scope snapshot mismatch")
+            if record.get("task_id") != authorization.task_snapshot.get("task_id"):
+                raise ValueError("task binding mismatch")
+            if record.get("grant_snapshot") != authorization.grant_snapshot:
+                raise ValueError("approval grant snapshot mismatch")
+            if not grant.scope.matches(request):
+                raise ValueError("request outside authorized scope")
+
         registered = self.executors.get(authorization.executor_id)
         if registered is None:
             raise ValueError("unknown executor")
         registered_target, executor = registered
         if registered_target != authorization.target:
             raise ValueError("executor target mismatch")
-
         result = executor(request)
         self.controlplane.complete_approved_execution(authorization.approval_id, result)
         return result
 
     def _verify_signature(self, authorization: ExecutionAuthorization) -> None:
-        expected = hmac.new(
-            self.key,
-            _canonical(authorization.unsigned_dict()),
-            hashlib.sha256,
-        ).hexdigest()
+        expected = hmac.new(self.key, _canonical(authorization.unsigned_dict()), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, authorization.signature):
             raise ValueError("authorization signature mismatch")
 
