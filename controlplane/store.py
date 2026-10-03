@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,9 +29,14 @@ class ControlPlane:
         self.root.mkdir(parents=True, exist_ok=True)
         self.agents_path = self.root / "agents.json"
         self.approvals_path = self.root / "approvals.json"
+        self.executors_path = self.root / "executors.json"
+        self.execution_nonces_path = self.root / "execution_nonces.json"
+        self.execution_nonces_lock_path = self.root / "execution_nonces.lock"
         self.evidence = EvidenceLog(self.root / "evidence.jsonl")
         self.agents: dict[str, Agent] = {}
         self.approvals: dict[str, dict[str, Any]] = {}
+        self.executors: dict[str, dict[str, str]] = {}
+        self._execution_nonces: set[str] = set()
         self._approval_executors: dict[str, Executor] = {}
         self._load()
 
@@ -39,6 +46,17 @@ class ControlPlane:
         self._save()
         self.evidence.append("agent.registered", agent.to_dict())
         return agent
+
+    def register_executor(self, executor_id: str, target: str) -> dict[str, str]:
+        if not executor_id or not target:
+            raise ValueError("executor_id and target are required")
+        existing = self.executors.get(executor_id)
+        if existing is not None and existing["target"] != target:
+            raise ValueError("executor binding target mismatch")
+        binding = {"executor_id": executor_id, "target": target}
+        self.executors[executor_id] = binding
+        self._save()
+        return binding
 
     def request(
         self,
@@ -104,7 +122,7 @@ class ControlPlane:
         bound_executor = self._approval_executors.get(approval_id)
         if executor is not None and bound_executor is not executor:
             raise ValueError("executor binding mismatch")
-        if approve and bound_executor is None:
+        if approve and execute and bound_executor is None:
             raise ValueError("executor binding unavailable")
 
         record["actor"] = actor
@@ -162,6 +180,31 @@ class ControlPlane:
             "evidence": executed_event["digest"],
         }
 
+    def consume_execution_nonce(self, nonce: str) -> bool:
+        if not nonce:
+            raise ValueError("execution nonce is required")
+        try:
+            import fcntl
+        except ImportError:  # pragma: no cover - Windows fallback
+            fcntl = None
+
+        self.execution_nonces_lock_path.touch(exist_ok=True)
+        with self.execution_nonces_lock_path.open("r+") as lock:
+            if fcntl is not None:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                current = set(json.loads(self.execution_nonces_path.read_text())) if self.execution_nonces_path.exists() else set()
+                if nonce in current:
+                    self._execution_nonces = current
+                    return False
+                current.add(nonce)
+                self._atomic_write_json(self.execution_nonces_path, sorted(current))
+                self._execution_nonces = current
+                return True
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
     def pending(self) -> list[dict[str, Any]]:
         return [a for a in self.approvals.values() if a["status"] == "pending"]
 
@@ -194,7 +237,26 @@ class ControlPlane:
             self.agents = {k: Agent(**v) for k, v in raw.items()}
         if self.approvals_path.exists():
             self.approvals = json.loads(self.approvals_path.read_text())
+        if self.executors_path.exists():
+            self.executors = json.loads(self.executors_path.read_text())
+        if self.execution_nonces_path.exists():
+            self._execution_nonces = set(json.loads(self.execution_nonces_path.read_text()))
 
     def _save(self) -> None:
-        self.agents_path.write_text(json.dumps({k: v.to_dict() for k, v in self.agents.items()}, indent=2) + "\n")
-        self.approvals_path.write_text(json.dumps(self.approvals, indent=2) + "\n")
+        self._atomic_write_json(self.agents_path, {k: v.to_dict() for k, v in self.agents.items()})
+        self._atomic_write_json(self.approvals_path, self.approvals)
+        self._atomic_write_json(self.executors_path, self.executors)
+
+    @staticmethod
+    def _atomic_write_json(path: Path, value: Any) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w") as handle:
+                handle.write(json.dumps(value, indent=2) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, path)
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
