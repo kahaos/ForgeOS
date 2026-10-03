@@ -45,3 +45,5 @@ Human operator identity is currently represented by a server-bound operator prin
 The real-agent trial in this repository uses a disposable workspace and simulated Git/secrets adapters. It demonstrates the control path; it does not claim that the repository is ready to authorize arbitrary production agents.
 
 Continue with the [real-agent quickstart](REAL_AGENT_QUICKSTART.md) or [AI agent authorization](AI_AGENT_AUTHORIZATION.md).
+
+Canonical quickstart reference: `real-agent-quickstart.md` → [REAL_AGENT_QUICKSTART.md](REAL_AGENT_QUICKSTART.md).
