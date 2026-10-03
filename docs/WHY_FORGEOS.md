@@ -52,3 +52,5 @@ ForgeOS is intended for developers, security engineers, platform teams, AI infra
 - [Security model](SECURITY_MODEL.md)
 - [Real agent quickstart](REAL_AGENT_QUICKSTART.md)
 - [Evidence and current status](EVIDENCE.md)
+
+Canonical quickstart reference: `real-agent-quickstart.md` → [REAL_AGENT_QUICKSTART.md](REAL_AGENT_QUICKSTART.md)

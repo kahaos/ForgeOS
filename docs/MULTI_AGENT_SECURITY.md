@@ -58,3 +58,7 @@ The goal is not to make autonomous agents unusable. The goal is to make authorit
 The repository contains scoped multi-agent authority and execution-boundary hardening tests. The first real-agent trial is deliberately disposable and uses simulated sensitive adapters. Production multi-agent deployment requires additional identity, persistence, provider, and operational hardening.
 
 Continue with [AI agent authorization](AI_AGENT_AUTHORIZATION.md) and [the real-agent quickstart](REAL_AGENT_QUICKSTART.md).
+
+Canonical quickstart reference: `real-agent-quickstart.md` → [REAL_AGENT_QUICKSTART.md](REAL_AGENT_QUICKSTART.md).
+
+Prototype status: this is a security-focused prototype; production multi-agent deployment requires additional identity, persistence, provider, and operational hardening.

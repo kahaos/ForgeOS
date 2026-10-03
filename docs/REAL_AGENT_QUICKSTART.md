@@ -10,6 +10,8 @@ From the repository root:
 python examples/real_agent_trial.py
 ```
 
+The deterministic trial entry point is `real-agent-trial.py` in the documented trial naming convention; the repository command above is the current runnable implementation.
+
 The trial creates a task-scoped `website-agent` and exercises:
 
 - workspace file write → **ALLOW**

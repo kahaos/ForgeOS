@@ -1,36 +1,124 @@
 # ForgeOS real-agent trial harness
 
-The real-agent trial harness is a safe bridge between the current scoped-authority prototype and a future external coding-agent integration.
+The real-agent trial harness is the bridge between the current scoped-authority prototype and an external autonomous coding-agent integration.
 
 ## What it proves
 
-`examples/real_agent_trial.py` runs a disposable task through the real ForgeOS `RuntimeGateway` and `ExecutionWorker` path. It exercises:
+The MCP trial places Gemini CLI behind a real ForgeOS MCP stdio server. Every exposed operation is routed through the existing `RuntimeGateway` and signed `ExecutionWorker` path.
+
+The trial exercises:
 
 - task-scoped filesystem authority
+- bounded workspace reads and writes
+- governed test execution without an agent-supplied shell command
+- Git status and commit authority
 - feature-branch Git push authority
 - repository and branch escape denial
-- human approval for simulated secret access
-- signed governed execution after approval
-- append-only evidence verification
+- human approval for a separately scoped secret request
+- signed governed execution
+- append-only evidence
+
+Gemini is configured with only the ForgeOS MCP server, an explicit tool allowlist, isolated CLI state, no built-in Gemini tools, and no provider credentials in the prompt or MCP configuration. Gemini's MCP documentation supports `mcp.allowed`, per-server `includeTools`, and a `trust` setting; this trial keeps `trust: false` so the MCP server is not treated as inherently trusted by Gemini, while ForgeOS remains the authoritative policy and approval boundary for tool execution. urlGemini CLI MCP configurationhttps://geminicli.com/docs/tools/mcp-server/
 
 ## What it deliberately does not do
 
-The harness does not contact GitHub, cloud providers, production systems, real secret stores, financial services, or deployment environments. Git and secret adapters are simulated.
+The first real-agent harness does not contact GitHub, cloud providers, production systems, real secret stores, financial services, or deployment environments. Git uses a local bare remote and secret access is represented by an executor that never returns secret material.
 
-This is intentional. The next step is to place a real coding agent in front of the control plane while retaining a disposable target and narrowly scoped credentials.
+This is intentional. The next stage is the disposable GitHub repository trial with a narrow repository credential.
 
-## Run it
-
-```bash
-python examples/real_agent_trial.py
-```
-
-For automated verification:
+## Run the MCP boundary tests
 
 ```bash
-pytest tests/test_real_agent_trial.py -q
+.venv/bin/python -m pytest \
+  tests/test_mcp_server.py \
+  tests/test_mcp_stdio.py \
+  tests/test_agent_session.py \
+  tests/test_real_agent_boundary.py \
+  tests/test_gemini_trial_runner.py \
+  tests/test_gemini_real_runtime.py \
+  tests/test_gemini_mcp_runtime.py \
+  tests/test_execution_path_hardening.py \
+  tests/test_real_agent_trial.py \
+  -q
 ```
 
-## Next stage
+## Prepare the disposable Gemini trial
 
-A real coding agent should receive a task, inspect its workspace, decide which changes are needed, and request tool operations. ForgeOS should independently authorize each operation. The agent should not be trusted to enforce its own permission boundary.
+The runner now performs the preparation step itself. From the ForgeOS repository root:
+
+```bash
+.venv/bin/python examples/run_gemini_forgeos_trial.py --prepare-only
+```
+
+By default this prepares:
+
+```text
+/opt/forgeos/gemini-controlplane-trial/
+├── workspace/
+│   └── .gemini/settings.json
+├── state/
+├── home/
+└── gemini-home/
+```
+
+The generated project configuration binds the MCP server to the disposable workspace and state directory. It contains no provider API key, token, or secret. The runner also removes `GEMINI_API_KEY`, `GOOGLE_API_KEY`, and `GOOGLE_APPLICATION_CREDENTIALS` from the Gemini process environment so provider credentials from the operator shell are not inherited by the trial.
+
+Use `--trial-root` to select another disposable location:
+
+```bash
+.venv/bin/python examples/run_gemini_forgeos_trial.py \
+  --trial-root /opt/forgeos/gemini-controlplane-trial \
+  --prepare-only
+```
+
+## Launch Gemini
+
+First verify the CLI is the expected installation:
+
+```bash
+gemini --version
+```
+
+Then launch the complete trial:
+
+```bash
+cd /opt/forgeos/hardening-v1-trial
+
+/opt/forgeos/.venv/bin/python \
+  examples/run_gemini_forgeos_trial.py \
+  --trial-root /opt/forgeos/gemini-controlplane-trial
+```
+
+Do **not** use Gemini YOLO mode for this trial. The runner uses `--approval-mode default`, disables built-in Gemini tools, and exposes only the seven ForgeOS MCP tools.
+
+The intended authority chain is:
+
+```text
+Gemini
+  -> ForgeOS MCP
+  -> RuntimeGateway
+  -> signed ExecutionAuthorization
+  -> ExecutionWorker
+  -> disposable workspace / local Git remote
+```
+
+For authentication, Gemini CLI's normal Google sign-in can be used interactively. In headless operation, Gemini's documentation supports API-key or Vertex AI authentication; any such credential should remain outside the repository and trial settings. urlGemini CLI authentication setuphttps://geminicli.com/docs/get-started/authentication/
+
+## Expected evidence
+
+At minimum, capture:
+
+- tool discovery contains exactly the seven ForgeOS tools
+- website files are created only inside the trial workspace
+- tests execute through the fixed test adapter
+- Git commit succeeds in the disposable repository
+- `feature/*` push succeeds
+- `main` / `master` push is denied before executor invocation
+- unrelated repository access is denied
+- secret request produces `ASK` and remains pending until explicit approval
+- no provider credential appears in Gemini configuration, prompt, or tool result
+- evidence contains the authorization and execution lifecycle
+
+## Current status
+
+The MCP server, stdio transport, session binding, real local adapters, executable Gemini trial harness, isolated runtime preparation, and boundary tests are implemented. The remaining external validation is to run the executable harness on the VPS and capture the observed autonomous website build. The GitHub disposable-repository trial follows that validation.

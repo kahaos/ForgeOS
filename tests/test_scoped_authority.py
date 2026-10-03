@@ -10,7 +10,7 @@ from controlplane.models import ActionRequest
 from controlplane.store import ControlPlane
 
 
-NOW = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc)
 FUTURE = (NOW + timedelta(hours=4)).isoformat()
 
 
@@ -45,6 +45,50 @@ def test_scoped_request_allows_in_scope_without_human_approval(tmp_path):
     result = cp.request_scoped(task.task_id, "builder", "git", "push", "company/site", {"branch": "feature/home"})
     assert result["verdict"] == "allow"
     assert result["grant_id"] == grant.grant_id
+
+
+def test_filesystem_write_path_traversal_is_denied_by_control_plane(tmp_path):
+    cp = ControlPlane(tmp_path / "controlplane")
+    cp.register("builder", owner="human", capabilities=["GIT_PUSH", "GIT_COMMIT"])
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    task = cp.create_task(
+        "task-write",
+        owner="human",
+        purpose="Write website files",
+        expires_at=FUTURE,
+    )
+
+    cp.issue_grant(
+        task.task_id,
+        "builder",
+        "FS_WRITE",
+        {
+            "tool": "filesystem",
+            "action": "write",
+            "workspace": str(workspace),
+        },
+        "human",
+        FUTURE,
+    )
+
+    result = cp.request_scoped(
+        task.task_id,
+        "builder",
+        "filesystem",
+        "write",
+        str(workspace),
+        {
+            "workspace": str(workspace),
+            "name": "../escape.html",
+            "content": "<h1>blocked</h1>",
+        },
+    )
+
+    assert result["verdict"] == "deny"
+    assert "workspace" in result["reason"].lower() or "path" in result["reason"].lower()
 
 
 def test_wrong_repository_and_branch_are_denied(tmp_path):
