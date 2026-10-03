@@ -26,6 +26,23 @@ def test_stdio_lists_only_governed_tools(tmp_path: Path) -> None:
     assert "shell" not in names
 
 
+def test_stdio_initialized_notification_has_no_response(tmp_path: Path) -> None:
+    _cp, gateway = build_trial_controlplane(tmp_path)
+    server = MCPStdioServer(
+        ForgeOSMCPServer(gateway, "real-agent-website-build", "website-agent")
+    )
+
+    response = server.handle(
+        {
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+            "params": {},
+        }
+    )
+
+    assert response is None
+
+
 def test_stdio_tool_call_uses_bound_session(tmp_path: Path) -> None:
     _cp, gateway = build_trial_controlplane(tmp_path)
     server = MCPStdioServer(ForgeOSMCPServer(gateway, "real-agent-website-build", "website-agent"))

@@ -144,8 +144,8 @@ class MCPStdioServer:
     def __init__(self, server: ForgeOSMCPServer) -> None:
         self.server = server
 
-    def handle(self, message: dict[str, Any]) -> dict[str, Any]:
-        """Handle one JSON-RPC request without allowing protocol errors to execute tools."""
+    def handle(self, message: dict[str, Any]) -> dict[str, Any] | None:
+        """Handle one JSON-RPC request or notification without executing protocol errors."""
         request_id = message.get("id")
         method = message.get("method")
         params = message.get("params") or {}
@@ -165,7 +165,8 @@ class MCPStdioServer:
             }
 
         if method == "notifications/initialized":
-            return {"jsonrpc": "2.0", "id": request_id, "result": {}}
+            # JSON-RPC notifications must not receive a response.
+            return None
 
         if method == "ping":
             return {"jsonrpc": "2.0", "id": request_id, "result": {}}
@@ -216,8 +217,9 @@ class MCPStdioServer:
                 response = self.handle(message)
             except (json.JSONDecodeError, TypeError):
                 response = self._error(None, -32700, "parse error")
-            stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
-            stdout.flush()
+            if response is not None:
+                stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
+                stdout.flush()
 
 
 __all__ = ["ForgeOSMCPServer", "MCPStdioServer"]

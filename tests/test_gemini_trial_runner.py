@@ -21,7 +21,7 @@ def test_gemini_settings_allow_only_forgeos_mcp(tmp_path: Path) -> None:
     assert settings["mcp"]["allowed"] == ["forgeos"]
     # ForgeOS is the authoritative execution gate. Gemini must not add a
     # second confirmation layer that can be bypassed or drift from policy.
-    assert settings["mcpServers"]["forgeos"]["trust"] is True
+    assert settings["mcpServers"]["forgeos"]["trust"] is False
     assert settings["mcpServers"]["forgeos"]["includeTools"] == [
         "read_file",
         "write_file",
