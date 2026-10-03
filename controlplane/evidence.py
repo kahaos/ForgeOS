@@ -26,8 +26,16 @@ class EvidenceLog:
 
     def append(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         prev = self._last_digest()
-        event = {"ts": _now(), "kind": kind, "payload": payload, "prev": prev}
-        event["digest"] = hashlib.sha256(_canon({k: event[k] for k in ("ts", "kind", "payload", "prev")})).hexdigest()
+        event = {
+            "ts": _now(),
+            "kind": kind,
+            "payload": payload,
+            "data": payload,
+            "prev": prev,
+        }
+        event["digest"] = hashlib.sha256(
+            _canon({k: event[k] for k in ("ts", "kind", "payload", "prev")})
+        ).hexdigest()
         with self.path.open("a") as handle:
             handle.write(json.dumps(event, sort_keys=True) + "\n")
         return event
