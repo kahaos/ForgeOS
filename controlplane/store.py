@@ -40,7 +40,16 @@ class ControlPlane:
         self.evidence.append("agent.registered", agent.to_dict())
         return agent
 
-    def request(self, agent_id: str, tool: str, action: str, target: str = "", detail: dict | None = None, executor: Executor | None = None) -> dict[str, Any]:
+    def request(
+        self,
+        agent_id: str,
+        tool: str,
+        action: str,
+        target: str = "",
+        detail: dict | None = None,
+        executor: Executor | None = None,
+        executor_id: str | None = None,
+    ) -> dict[str, Any]:
         if agent_id not in self.agents:
             event = self.evidence.append("action.denied", {"agent_id": agent_id, "reason": "unknown agent"})
             return {"verdict": "deny", "reason": "unknown agent", "evidence": event["digest"]}
@@ -71,6 +80,7 @@ class ControlPlane:
             "created_at": _now(),
             "reason": decision.reason,
             "execution_binding_id": binding_id,
+            "executor_id": executor_id or f"{tool}:{action}",
         }
         self.approvals[approval_id] = record
         self._approval_executors[approval_id] = bound_executor
@@ -131,9 +141,18 @@ class ControlPlane:
             self.evidence.append("approval.execution_failed", {**self._evidence_payload(record), "error": str(exc)})
             raise
 
+        return self.complete_approved_execution(approval_id, result)
+
+    def complete_approved_execution(self, approval_id: str, result: dict[str, Any]) -> dict[str, Any]:
+        record = self.approvals.get(approval_id)
+        if not record or record["status"] != "approved":
+            raise KeyError(f"no approved execution {approval_id}")
         record["status"] = "completed"
         self._save()
-        executed_event = self.evidence.append("approval.executed", {**self._evidence_payload(record), "result": result})
+        executed_event = self.evidence.append(
+            "approval.executed",
+            {**self._evidence_payload(record), "result": result},
+        )
         return {
             "verdict": "allow",
             "reason": "human approved",
@@ -141,7 +160,6 @@ class ControlPlane:
             "approval_id": approval_id,
             "request_digest": record["request_digest"],
             "evidence": executed_event["digest"],
-            "approval_evidence": approved_event["digest"],
         }
 
     def pending(self) -> list[dict[str, Any]]:
