@@ -82,6 +82,10 @@ request
 
 The existing `decide(..., execute=True)` behaviour remains for compatibility with the original in-process approval tests. The API path uses `execute=False` so approval authorizes the operation without executing it; the separate Execution Worker then consumes the authorization.
 
+Executor identity/target bindings are now persisted in `executors.json`, allowing an approved authorization to be issued after a Control Plane restart. The executable callable is intentionally still registered by the live worker process, so a restart cannot silently recreate executable authority.
+
+Execution nonces are persisted in `execution_nonces.json` and consumed under a Unix file lock. This makes the single-use authorization decision survive worker restarts. A failed executor does not release its consumed nonce; retry requires a new authorization.
+
 ### `evidence.py`
 
 Maintains the tamper-evident evidence chain. Approval requests, decisions, grants, executions, and failures are recorded as evidence events.
@@ -142,7 +146,9 @@ The v1 worker uses HMAC-SHA-256 for the authorization prototype and constant-tim
 
 Nonces are generated with Python's `secrets` module, which provides cryptographically strong randomness suitable for security tokens. citeturn2search3
 
-These mechanisms establish the prototype authorization contract. They are **not** the final production key-management architecture. The production roadmap requires isolated workers, durable authorization state, stronger key management, authenticated identities, secret isolation, and adversarial security testing.
+Authorization state is written with atomic file replacement, and nonce consumption uses an exclusive Unix file lock. These mechanisms are appropriate for the current development worker boundary, but they are **not** the final production state store or key-management architecture. Python documents `os.replace()` as atomic when the replacement occurs successfully on the same filesystem, and `fcntl.flock()` provides exclusive file locking on Unix. citeturn4search0turn2search0
+
+The production roadmap still requires authenticated agent identities, stronger key management, isolated workers, secret isolation, network controls, durable multi-process state, and adversarial security testing.
 
 ## Current limitations
 
@@ -155,7 +161,9 @@ This v1 milestone intentionally does not enable:
 - unrestricted agent creation;
 - agent-controlled policy modification.
 
-The current Control Plane store is local JSON/in-memory state. Executor function bindings are not durable across a process restart, so authorization issuance fails closed when the original binding is unavailable. This is an intentional v1 limitation and a direct roadmap item for durable worker authorization.
+Executor metadata and replay state are now durable, but executor function bindings remain process-local by design. A restarted worker must explicitly re-register the executor callable before it can execute anything. This prevents persistence from becoming an implicit permission to execute.
+
+The JSON store is still a development persistence layer rather than a production database. The next persistence hardening step is a transactional multi-worker store with stronger concurrency guarantees.
 
 ## Run
 
@@ -190,6 +198,9 @@ The v1 CI suite covers:
 - expiry;
 - replay protection;
 - executor/target binding;
-- worker fail-closed behaviour.
+- worker fail-closed behaviour;
+- restart-safe executor binding;
+- durable nonce consumption;
+- no-retry-after-failed-execution replay protection.
 
-The latest verified v1 regression run completed with **35 tests passing**.
+The latest verified hardening regression run completed with **38 tests passing**.
