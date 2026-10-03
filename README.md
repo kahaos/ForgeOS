@@ -135,6 +135,7 @@ tests/
   test_controlplane_*.py Control Plane regression tests
   test_gemini_*.py       Gemini integration/approval tests
   test_execution_worker.py Worker boundary tests
+  test_controlplane_http.py HTTP API integration test
 
 docs/superpowers/
   specs/                 Approved architecture specifications
@@ -182,6 +183,7 @@ PYTHONPATH=. pytest \
   tests/test_gemini_adapter.py \
   tests/test_gemini_approval.py \
   tests/test_controlplane_api.py \
+  tests/test_controlplane_http.py \
   tests/test_execution_worker.py -q
 ```
 
