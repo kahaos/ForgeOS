@@ -125,3 +125,59 @@ def test_api_key_opt_in_requires_key_in_operator_environment(
 
     with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
         build_trial_environment(tmp_path, provider_auth="gemini-api-key")
+
+def test_gemini_settings_deny_native_shell_via_policy_engine(
+    tmp_path: Path,
+) -> None:
+    settings = build_gemini_settings(tmp_path, "forgeos-server.py")
+
+    policy_path = settings["policy"][0]
+
+    assert policy_path.endswith("forgeos-trial.toml")
+
+    policy = Path(policy_path)
+    assert policy.is_file()
+
+    policy_text = policy.read_text(encoding="utf-8")
+
+    assert 'toolName = "run_shell_command"' in policy_text
+    assert 'decision = "deny"' in policy_text
+
+def test_gemini_policy_denies_native_tools_used_to_bypass_forgeos(
+    tmp_path: Path,
+) -> None:
+    settings = build_gemini_settings(tmp_path, "forgeos-server.py")
+
+    policy_path = Path(settings["policy"][0])
+    policy_text = policy_path.read_text(encoding="utf-8")
+
+    for tool_name in (
+        "run_shell_command",
+        "write_file",
+        "replace",
+        "read_file",
+        "list_directory",
+        "glob",
+    ):
+        assert f'toolName = "{tool_name}"' in policy_text
+        assert 'decision = "deny"' in policy_text
+
+def test_gemini_command_loads_forgeos_policy(tmp_path: Path) -> None:
+    command = build_gemini_command(
+        tmp_path / "workspace",
+        "Build the trial website",
+    )
+
+    assert "--policy" in command
+    policy_arg = command[command.index("--policy") + 1]
+    assert policy_arg == str(tmp_path / "forgeos-trial.toml")
+
+def test_gemini_policy_denies_canonical_native_shell_only(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    build_gemini_settings(workspace, "forgeos-server.py")
+
+    policy = (tmp_path / "forgeos-trial.toml").read_text(encoding="utf-8")
+
+    assert 'toolName = "run_shell_command"' in policy
+    assert 'toolName = "run_shell_command"' in policy
+    assert 'decision = "deny"' in policy

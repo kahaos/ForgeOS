@@ -75,6 +75,42 @@ def build_gemini_settings(
         "disableYoloMode": True,
         "disableAlwaysAllow": True,
     }
+
+    policy_path = root / "forgeos-trial.toml"
+    policy_path.write_text(
+        """
+[[rule]]
+toolName = "run_shell_command"
+decision = "deny"
+priority = 100
+
+[[rule]]
+toolName = "write_file"
+decision = "deny"
+priority = 100
+
+[[rule]]
+toolName = "replace"
+decision = "deny"
+priority = 100
+
+[[rule]]
+toolName = "read_file"
+decision = "deny"
+priority = 100
+
+[[rule]]
+toolName = "list_directory"
+decision = "deny"
+priority = 100
+
+[[rule]]
+toolName = "glob"
+decision = "deny"
+priority = 100
+""",
+        encoding="utf-8",
+    )
     if provider_auth is not None:
         security["auth"] = {"selectedType": provider_auth}
 
@@ -100,6 +136,7 @@ def build_gemini_settings(
             }
         },
         "security": security,
+        "policy": [str(policy_path)],
         "general": {"defaultApprovalMode": "default"},
         "privacy": {"usageStatisticsEnabled": False},
     }
@@ -233,6 +270,8 @@ def build_gemini_command(
         "default",
         "--extensions",
         "none",
+        "--policy",
+        str(Path(workspace).parent / "forgeos-trial.toml"),
         "--output-format",
         "text",
         "--include-directories",
