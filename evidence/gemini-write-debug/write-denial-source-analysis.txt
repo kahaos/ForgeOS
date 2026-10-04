@@ -1,0 +1,947 @@
+=== GEMINI WRITE DEBUG ===
+Date: 2026-10-04T09:03:23+00:00
+Branch: real-agent-mcp-v1
+Commit: 9af1ad6938b28a4c0b5b4fd8498c64a0752a8fd2
+
+=== WRITE FILE MCP HANDLER ===
+controlplane/mcp_server.py-3-The bridge deliberately contains no generic shell or direct provider access. It
+controlplane/mcp_server.py-4-binds every tool call to one ForgeOS task and agent, then delegates authorization
+controlplane/mcp_server.py-5-and execution to the existing RuntimeGateway.
+controlplane/mcp_server.py-6-"""
+controlplane/mcp_server.py-7-
+controlplane/mcp_server.py-8-from __future__ import annotations
+controlplane/mcp_server.py-9-
+controlplane/mcp_server.py-10-import json
+controlplane/mcp_server.py-11-import sys
+controlplane/mcp_server.py-12-from typing import Any, TextIO
+controlplane/mcp_server.py-13-
+controlplane/mcp_server.py-14-from .gateway import RuntimeGateway
+controlplane/mcp_server.py-15-
+controlplane/mcp_server.py-16-
+controlplane/mcp_server.py-17-class ForgeOSMCPServer:
+controlplane/mcp_server.py-18-    """Expose only explicitly governed ForgeOS operations to an agent."""
+controlplane/mcp_server.py-19-
+controlplane/mcp_server.py-20-    TOOL_NAMES = frozenset(
+controlplane/mcp_server.py-21-        {
+controlplane/mcp_server.py-22-            "read_file",
+controlplane/mcp_server.py:23:            "write_file",
+controlplane/mcp_server.py-24-            "run_test",
+controlplane/mcp_server.py-25-            "git_status",
+controlplane/mcp_server.py-26-            "git_commit",
+controlplane/mcp_server.py-27-            "git_push",
+controlplane/mcp_server.py-28-            "request_action",
+controlplane/mcp_server.py-29-        }
+controlplane/mcp_server.py-30-    )
+controlplane/mcp_server.py-31-
+controlplane/mcp_server.py-32-    TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
+controlplane/mcp_server.py-33-        "read_file": {
+controlplane/mcp_server.py-34-            "description": "Read a file through ForgeOS policy.",
+controlplane/mcp_server.py-35-            "inputSchema": {"type": "object", "properties": {"workspace": {"type": "string"}, "path": {"type": "string"}}, "required": ["workspace", "path"]},
+controlplane/mcp_server.py-36-        },
+controlplane/mcp_server.py:37:        "write_file": {
+controlplane/mcp_server.py-38-            "description": "Write a file through ForgeOS policy.",
+controlplane/mcp_server.py-39-            "inputSchema": {"type": "object", "properties": {"workspace": {"type": "string"}, "name": {"type": "string"}, "content": {"type": "string"}}, "required": ["workspace", "name", "content"]},
+controlplane/mcp_server.py-40-        },
+controlplane/mcp_server.py-41-        "run_test": {
+controlplane/mcp_server.py-42-            "description": "Run a governed test operation in a workspace.",
+controlplane/mcp_server.py-43-            "inputSchema": {"type": "object", "properties": {"workspace": {"type": "string"}, "command": {"type": "string"}}, "required": ["workspace"]},
+controlplane/mcp_server.py-44-        },
+controlplane/mcp_server.py-45-        "git_status": {
+controlplane/mcp_server.py-46-            "description": "Inspect Git status through ForgeOS policy.",
+controlplane/mcp_server.py-47-            "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}}, "required": ["repository"]},
+controlplane/mcp_server.py-48-        },
+controlplane/mcp_server.py-49-        "git_commit": {
+controlplane/mcp_server.py-50-            "description": "Create a Git commit through ForgeOS policy.",
+controlplane/mcp_server.py-51-            "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "message": {"type": "string"}}, "required": ["repository", "message"]},
+controlplane/mcp_server.py-52-        },
+controlplane/mcp_server.py-53-        "git_push": {
+controlplane/mcp_server.py-54-            "description": "Push a Git branch through ForgeOS policy.",
+controlplane/mcp_server.py-55-            "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "branch": {"type": "string"}}, "required": ["repository", "branch"]},
+controlplane/mcp_server.py-56-        },
+controlplane/mcp_server.py-57-        "request_action": {
+controlplane/mcp_server.py-58-            "description": "Request another explicitly registered ForgeOS action; policy decides allow, ask, or deny.",
+controlplane/mcp_server.py-59-            "inputSchema": {"type": "object", "properties": {"tool": {"type": "string"}, "action": {"type": "string"}, "target": {"type": "string"}, "detail": {"type": "object"}}, "required": ["tool", "action", "target"]},
+controlplane/mcp_server.py-60-        },
+controlplane/mcp_server.py-61-    }
+controlplane/mcp_server.py-62-
+controlplane/mcp_server.py-63-    def __init__(self, gateway: RuntimeGateway, task_id: str, agent_id: str) -> None:
+controlplane/mcp_server.py-64-        if not task_id or not agent_id:
+controlplane/mcp_server.py-65-            raise ValueError("task_id and agent_id are required")
+controlplane/mcp_server.py-66-        self.gateway = gateway
+controlplane/mcp_server.py-67-        self.task_id = task_id
+controlplane/mcp_server.py-68-        self.agent_id = agent_id
+controlplane/mcp_server.py-69-
+controlplane/mcp_server.py-70-    def list_tools(self) -> set[str]:
+controlplane/mcp_server.py-71-        """Return the fixed, intentionally narrow agent-facing tool surface."""
+controlplane/mcp_server.py-72-        return set(self.TOOL_NAMES)
+controlplane/mcp_server.py-73-
+controlplane/mcp_server.py-74-    def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-75-        """Translate one MCP-style call into a governed RuntimeGateway request."""
+controlplane/mcp_server.py-76-        if name not in self.TOOL_NAMES:
+controlplane/mcp_server.py-77-            raise ValueError(f"unknown MCP tool: {name}")
+controlplane/mcp_server.py-78-        if not isinstance(arguments, dict):
+controlplane/mcp_server.py-79-            raise ValueError("MCP tool arguments must be an object")
+controlplane/mcp_server.py-80-
+controlplane/mcp_server.py-81-        handler = getattr(self, f"_tool_{name}")
+controlplane/mcp_server.py-82-        return handler(arguments)
+controlplane/mcp_server.py-83-
+controlplane/mcp_server.py-84-    def _request(
+controlplane/mcp_server.py-85-        self,
+controlplane/mcp_server.py-86-        arguments: dict[str, Any],
+controlplane/mcp_server.py-87-        *,
+controlplane/mcp_server.py-88-        tool: str,
+controlplane/mcp_server.py-89-        action: str,
+controlplane/mcp_server.py-90-        target_key: str,
+controlplane/mcp_server.py-91-        executor_id: str | None = None,
+controlplane/mcp_server.py-92-        required: tuple[str, ...] = (),
+controlplane/mcp_server.py-93-    ) -> dict[str, Any]:
+controlplane/mcp_server.py-94-        self._require(arguments, *required)
+controlplane/mcp_server.py-95-        target = str(arguments[target_key])
+controlplane/mcp_server.py-96-        return self.gateway.request(
+controlplane/mcp_server.py-97-            self.task_id,
+controlplane/mcp_server.py-98-            self.agent_id,
+controlplane/mcp_server.py-99-            tool,
+controlplane/mcp_server.py-100-            action,
+controlplane/mcp_server.py-101-            target,
+controlplane/mcp_server.py-102-            dict(arguments),
+controlplane/mcp_server.py-103-            executor_id=executor_id,
+controlplane/mcp_server.py-104-        )
+controlplane/mcp_server.py-105-
+controlplane/mcp_server.py-106-    @staticmethod
+controlplane/mcp_server.py-107-    def _require(arguments: dict[str, Any], *keys: str) -> None:
+controlplane/mcp_server.py-108-        missing = [key for key in keys if key not in arguments]
+controlplane/mcp_server.py-109-        if missing:
+controlplane/mcp_server.py-110-            raise ValueError(f"missing MCP arguments: {', '.join(missing)}")
+controlplane/mcp_server.py-111-
+controlplane/mcp_server.py-112-    def _tool_read_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-113-        return self._request(arguments, tool="filesystem", action="read", target_key="workspace", executor_id="filesystem:read", required=("workspace", "path"))
+controlplane/mcp_server.py-114-
+controlplane/mcp_server.py:115:    def _tool_write_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-116-        return self._request(arguments, tool="filesystem", action="write", target_key="workspace", executor_id="filesystem:write", required=("workspace", "name", "content"))
+controlplane/mcp_server.py-117-
+controlplane/mcp_server.py-118-    def _tool_run_test(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-119-        return self._request(arguments, tool="test", action="run", target_key="workspace", executor_id="test:run", required=("workspace",))
+controlplane/mcp_server.py-120-
+controlplane/mcp_server.py-121-    def _tool_git_status(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-122-        return self._request(arguments, tool="git", action="status", target_key="repository", executor_id="git:status", required=("repository",))
+controlplane/mcp_server.py-123-
+controlplane/mcp_server.py-124-    def _tool_git_commit(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-125-        return self._request(arguments, tool="git", action="commit", target_key="repository", executor_id="git:commit", required=("repository", "message"))
+controlplane/mcp_server.py-126-
+controlplane/mcp_server.py-127-    def _tool_git_push(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-128-        return self._request(arguments, tool="git", action="push", target_key="repository", executor_id="git:push", required=("repository", "branch"))
+controlplane/mcp_server.py-129-
+controlplane/mcp_server.py-130-    def _tool_request_action(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-131-        self._require(arguments, "tool", "action", "target")
+controlplane/mcp_server.py-132-        detail = dict(arguments.get("detail") or {})
+controlplane/mcp_server.py-133-        for key, value in arguments.items():
+controlplane/mcp_server.py-134-            if key not in {"tool", "action", "target", "detail"}:
+controlplane/mcp_server.py-135-                detail.setdefault(key, value)
+controlplane/mcp_server.py-136-        return self.gateway.request(self.task_id, self.agent_id, str(arguments["tool"]), str(arguments["action"]), str(arguments["target"]), detail, executor_id=f"{arguments['tool']}:{arguments['action']}")
+controlplane/mcp_server.py-137-
+controlplane/mcp_server.py-138-
+controlplane/mcp_server.py-139-class MCPStdioServer:
+controlplane/mcp_server.py-140-    """Minimal JSON-RPC stdio transport for MCP hosts such as Gemini CLI."""
+controlplane/mcp_server.py-141-
+controlplane/mcp_server.py-142-    PROTOCOL_VERSION = "2025-06-18"
+controlplane/mcp_server.py-143-
+controlplane/mcp_server.py-144-    def __init__(self, server: ForgeOSMCPServer) -> None:
+controlplane/mcp_server.py-145-        self.server = server
+controlplane/mcp_server.py-146-
+controlplane/mcp_server.py-147-    def handle(self, message: dict[str, Any]) -> dict[str, Any] | None:
+controlplane/mcp_server.py-148-        """Handle one JSON-RPC request or notification without executing protocol errors."""
+controlplane/mcp_server.py-149-        request_id = message.get("id")
+controlplane/mcp_server.py-150-        method = message.get("method")
+controlplane/mcp_server.py-151-        params = message.get("params") or {}
+controlplane/mcp_server.py-152-
+controlplane/mcp_server.py-153-        if message.get("jsonrpc") != "2.0" or not isinstance(method, str):
+controlplane/mcp_server.py-154-            return self._error(request_id, -32600, "invalid request")
+controlplane/mcp_server.py-155-
+controlplane/mcp_server.py-156-        if method == "initialize":
+controlplane/mcp_server.py-157-            return {
+controlplane/mcp_server.py-158-                "jsonrpc": "2.0",
+controlplane/mcp_server.py-159-                "id": request_id,
+controlplane/mcp_server.py-160-                "result": {
+controlplane/mcp_server.py-161-                    "protocolVersion": self.PROTOCOL_VERSION,
+controlplane/mcp_server.py-162-                    "capabilities": {"tools": {}},
+controlplane/mcp_server.py-163-                    "serverInfo": {"name": "forgeos-control-plane", "version": "0.1.0"},
+controlplane/mcp_server.py-164-                },
+controlplane/mcp_server.py-165-            }
+controlplane/mcp_server.py-166-
+controlplane/mcp_server.py-167-        if method == "notifications/initialized":
+controlplane/mcp_server.py-168-            # JSON-RPC notifications must not receive a response.
+controlplane/mcp_server.py-169-            return None
+controlplane/mcp_server.py-170-
+controlplane/mcp_server.py-171-        if method == "ping":
+controlplane/mcp_server.py-172-            return {"jsonrpc": "2.0", "id": request_id, "result": {}}
+controlplane/mcp_server.py-173-
+controlplane/mcp_server.py-174-        if method == "tools/list":
+controlplane/mcp_server.py-175-            tools = [
+
+=== WORKSPACE PATH VALIDATION ===
+--
+controlplane/authority.py-27-    "api_path",
+controlplane/authority.py-28-}
+controlplane/authority.py-29-
+controlplane/authority.py-30-TASK_STATUSES = {"active", "completed", "revoked", "expired"}
+controlplane/authority.py-31-
+controlplane/authority.py-32-
+controlplane/authority.py-33-def _utc(value: str) -> datetime:
+controlplane/authority.py-34-    parsed = datetime.fromisoformat(value)
+controlplane/authority.py-35-    if parsed.tzinfo is None:
+controlplane/authority.py-36-        parsed = parsed.replace(tzinfo=timezone.utc)
+controlplane/authority.py-37-    return parsed.astimezone(timezone.utc)
+controlplane/authority.py-38-
+controlplane/authority.py-39-
+controlplane/authority.py-40-def resolve_workspace_path(workspace: str | Path, relative: str) -> Path:
+controlplane/authority.py-41-    """Resolve a workspace-relative path and reject escapes from the workspace.
+controlplane/authority.py-42-
+controlplane/authority.py-43-    This is shared by policy and the local executor so the authorization boundary
+controlplane/authority.py-44-    and execution boundary apply exactly the same path-containment rule.
+controlplane/authority.py-45-    """
+controlplane/authority.py-46-    if not isinstance(relative, str) or not relative:
+controlplane/authority.py:47:        raise ValueError("workspace path is required")
+controlplane/authority.py-48-    root = Path(workspace).resolve()
+controlplane/authority.py-49-    candidate = (root / relative).resolve()
+controlplane/authority.py-50-    try:
+controlplane/authority.py-51-        candidate.relative_to(root)
+controlplane/authority.py-52-    except ValueError as exc:
+controlplane/authority.py-53-        raise ValueError("path is outside workspace") from exc
+controlplane/authority.py-54-    return candidate
+controlplane/authority.py-55-
+controlplane/authority.py-56-
+controlplane/authority.py-57-def _request_value(request: Any, dimension: str) -> str:
+controlplane/authority.py-58-    detail = request.detail or {}
+controlplane/authority.py-59-    if dimension == "tool":
+controlplane/authority.py-60-        return request.tool
+controlplane/authority.py-61-    if dimension == "action":
+controlplane/authority.py-62-        return request.action
+controlplane/authority.py-63-    if dimension == "resource":
+controlplane/authority.py-64-        return request.target
+controlplane/authority.py-65-    if dimension == "repository":
+controlplane/authority.py-66-        return str(detail.get("repository", request.target))
+controlplane/authority.py-67-    if dimension == "branch":
+controlplane/authority.py-68-        return str(detail.get("branch", ""))
+controlplane/authority.py-69-    if dimension in {"workspace", "workspace_path"}:
+controlplane/authority.py-70-        return str(detail.get("workspace", detail.get("path", "")))
+controlplane/authority.py-71-    if dimension == "environment":
+controlplane/authority.py-72-        return str(detail.get("environment", ""))
+controlplane/authority.py-73-    if dimension == "api_host":
+controlplane/authority.py-74-        return str(detail.get("api_host", ""))
+controlplane/authority.py-75-    if dimension == "api_path":
+controlplane/authority.py-76-        return str(detail.get("api_path", detail.get("path", "")))
+controlplane/authority.py-77-    raise ValueError(f"unknown scope dimension: {dimension}")
+controlplane/authority.py-78-
+controlplane/authority.py-79-
+controlplane/authority.py-80-@dataclass(frozen=True)
+controlplane/authority.py-81-class Scope:
+controlplane/authority.py-82-    values: dict[str, str] = field(default_factory=dict)
+controlplane/authority.py-83-
+controlplane/authority.py-84-    def __post_init__(self) -> None:
+controlplane/authority.py-85-        unknown = set(self.values) - SCOPE_DIMENSIONS
+controlplane/authority.py-86-        if unknown:
+controlplane/authority.py-87-            raise ValueError(f"unknown scope dimension: {sorted(unknown)[0]}")
+
+=== FILESYSTEM WRITE REFERENCES ===
+--
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-27-| `modify_policy` | `deny` | Blocked | `9c5e5844a94e37c65a94b65eb41875818c4b8f4bf9e96d05fb7ee62db6b2cdf8` |
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-28-| `spend_funds` | `deny` | Blocked | `bad7f81b920611e1d2b3d0e4cb0498ed31768ee55965a69ccb3ff2f0a3d15d7f` |
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-29-
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-30-## Evidence-chain verification
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-31-
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-32-The live run ended with:
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-33-
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-34-```text
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-35-=== FORGEOS SNAPSHOT ===
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-36-evidence_ok: true
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-37-events: 9
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-38-```
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-39-
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-40-The recorded event sequence was:
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-41-
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md:42:1. `action.allowed` — filesystem write
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-43-2. `action.allowed` — filesystem read
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-44-3. `action.allowed` — safe shell execution
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-45-4. `approval.requested` — git push
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-46-5. `approval.requested` — secret access
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-47-6. `action.denied` — agent creation
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-48-7. `action.denied` — policy modification
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-49-8. `action.denied` — funds spending
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-50-
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-51-Two approval records remained pending at the end of the run:
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-52-
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-53-- `apr_89d3bc23` — git push to `test-repo`
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-54-- `apr_cacfb79b` — secret access
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-55-
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-56-## Agent capabilities used for the test
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-57-
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-58-```text
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-59-FS_READ
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-60-FS_WRITE
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-61-GIT_PUSH
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-62-READ_SECRETS
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-63-SHELL
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-64-```
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-65-
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-66-The test deliberately did **not** grant `CREATE_AGENT`, `MODIFY_POLICY`, or `SPEND_FUNDS`, so those three denials establish the missing-capability path. A separate hard-deny escalation test should grant those capabilities to a disposable agent and verify that ForgeOS still denies them.
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-67-
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-68-## Significance
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-69-
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-70-This is the first recorded live integration evidence showing:
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-71-
+controlplane/gemini_test/EVIDENCE_LIVE_RUN_2026-10-03.md-72-```text
+--
+controlplane/mcp_server.py-101-            target,
+controlplane/mcp_server.py-102-            dict(arguments),
+controlplane/mcp_server.py-103-            executor_id=executor_id,
+controlplane/mcp_server.py-104-        )
+controlplane/mcp_server.py-105-
+controlplane/mcp_server.py-106-    @staticmethod
+controlplane/mcp_server.py-107-    def _require(arguments: dict[str, Any], *keys: str) -> None:
+controlplane/mcp_server.py-108-        missing = [key for key in keys if key not in arguments]
+controlplane/mcp_server.py-109-        if missing:
+controlplane/mcp_server.py-110-            raise ValueError(f"missing MCP arguments: {', '.join(missing)}")
+controlplane/mcp_server.py-111-
+controlplane/mcp_server.py-112-    def _tool_read_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-113-        return self._request(arguments, tool="filesystem", action="read", target_key="workspace", executor_id="filesystem:read", required=("workspace", "path"))
+controlplane/mcp_server.py-114-
+controlplane/mcp_server.py-115-    def _tool_write_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py:116:        return self._request(arguments, tool="filesystem", action="write", target_key="workspace", executor_id="filesystem:write", required=("workspace", "name", "content"))
+controlplane/mcp_server.py-117-
+controlplane/mcp_server.py-118-    def _tool_run_test(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-119-        return self._request(arguments, tool="test", action="run", target_key="workspace", executor_id="test:run", required=("workspace",))
+controlplane/mcp_server.py-120-
+controlplane/mcp_server.py-121-    def _tool_git_status(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-122-        return self._request(arguments, tool="git", action="status", target_key="repository", executor_id="git:status", required=("repository",))
+controlplane/mcp_server.py-123-
+controlplane/mcp_server.py-124-    def _tool_git_commit(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-125-        return self._request(arguments, tool="git", action="commit", target_key="repository", executor_id="git:commit", required=("repository", "message"))
+controlplane/mcp_server.py-126-
+controlplane/mcp_server.py-127-    def _tool_git_push(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-128-        return self._request(arguments, tool="git", action="push", target_key="repository", executor_id="git:push", required=("repository", "branch"))
+controlplane/mcp_server.py-129-
+controlplane/mcp_server.py-130-    def _tool_request_action(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py-131-        self._require(arguments, "tool", "action", "target")
+controlplane/mcp_server.py-132-        detail = dict(arguments.get("detail") or {})
+controlplane/mcp_server.py-133-        for key, value in arguments.items():
+controlplane/mcp_server.py-134-            if key not in {"tool", "action", "target", "detail"}:
+controlplane/mcp_server.py-135-                detail.setdefault(key, value)
+controlplane/mcp_server.py-136-        return self.gateway.request(self.task_id, self.agent_id, str(arguments["tool"]), str(arguments["action"]), str(arguments["target"]), detail, executor_id=f"{arguments['tool']}:{arguments['action']}")
+controlplane/mcp_server.py-137-
+controlplane/mcp_server.py-138-
+controlplane/mcp_server.py-139-class MCPStdioServer:
+controlplane/mcp_server.py-140-    """Minimal JSON-RPC stdio transport for MCP hosts such as Gemini CLI."""
+controlplane/mcp_server.py-141-
+controlplane/mcp_server.py-142-    PROTOCOL_VERSION = "2025-06-18"
+controlplane/mcp_server.py-143-
+controlplane/mcp_server.py-144-    def __init__(self, server: ForgeOSMCPServer) -> None:
+controlplane/mcp_server.py-145-        self.server = server
+controlplane/mcp_server.py-146-
+--
+controlplane/mcp_server.py.bak-notification-fix-101-            target,
+controlplane/mcp_server.py.bak-notification-fix-102-            dict(arguments),
+controlplane/mcp_server.py.bak-notification-fix-103-            executor_id=executor_id,
+controlplane/mcp_server.py.bak-notification-fix-104-        )
+controlplane/mcp_server.py.bak-notification-fix-105-
+controlplane/mcp_server.py.bak-notification-fix-106-    @staticmethod
+controlplane/mcp_server.py.bak-notification-fix-107-    def _require(arguments: dict[str, Any], *keys: str) -> None:
+controlplane/mcp_server.py.bak-notification-fix-108-        missing = [key for key in keys if key not in arguments]
+controlplane/mcp_server.py.bak-notification-fix-109-        if missing:
+controlplane/mcp_server.py.bak-notification-fix-110-            raise ValueError(f"missing MCP arguments: {', '.join(missing)}")
+controlplane/mcp_server.py.bak-notification-fix-111-
+controlplane/mcp_server.py.bak-notification-fix-112-    def _tool_read_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py.bak-notification-fix-113-        return self._request(arguments, tool="filesystem", action="read", target_key="workspace", executor_id="filesystem:read", required=("workspace", "path"))
+controlplane/mcp_server.py.bak-notification-fix-114-
+controlplane/mcp_server.py.bak-notification-fix-115-    def _tool_write_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py.bak-notification-fix:116:        return self._request(arguments, tool="filesystem", action="write", target_key="workspace", executor_id="filesystem:write", required=("workspace", "name", "content"))
+controlplane/mcp_server.py.bak-notification-fix-117-
+controlplane/mcp_server.py.bak-notification-fix-118-    def _tool_run_test(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py.bak-notification-fix-119-        return self._request(arguments, tool="test", action="run", target_key="workspace", executor_id="test:run", required=("workspace",))
+controlplane/mcp_server.py.bak-notification-fix-120-
+controlplane/mcp_server.py.bak-notification-fix-121-    def _tool_git_status(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py.bak-notification-fix-122-        return self._request(arguments, tool="git", action="status", target_key="repository", executor_id="git:status", required=("repository",))
+controlplane/mcp_server.py.bak-notification-fix-123-
+controlplane/mcp_server.py.bak-notification-fix-124-    def _tool_git_commit(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py.bak-notification-fix-125-        return self._request(arguments, tool="git", action="commit", target_key="repository", executor_id="git:commit", required=("repository", "message"))
+controlplane/mcp_server.py.bak-notification-fix-126-
+controlplane/mcp_server.py.bak-notification-fix-127-    def _tool_git_push(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py.bak-notification-fix-128-        return self._request(arguments, tool="git", action="push", target_key="repository", executor_id="git:push", required=("repository", "branch"))
+controlplane/mcp_server.py.bak-notification-fix-129-
+controlplane/mcp_server.py.bak-notification-fix-130-    def _tool_request_action(self, arguments: dict[str, Any]) -> dict[str, Any]:
+controlplane/mcp_server.py.bak-notification-fix-131-        self._require(arguments, "tool", "action", "target")
+controlplane/mcp_server.py.bak-notification-fix-132-        detail = dict(arguments.get("detail") or {})
+controlplane/mcp_server.py.bak-notification-fix-133-        for key, value in arguments.items():
+controlplane/mcp_server.py.bak-notification-fix-134-            if key not in {"tool", "action", "target", "detail"}:
+controlplane/mcp_server.py.bak-notification-fix-135-                detail.setdefault(key, value)
+controlplane/mcp_server.py.bak-notification-fix-136-        return self.gateway.request(self.task_id, self.agent_id, str(arguments["tool"]), str(arguments["action"]), str(arguments["target"]), detail, executor_id=f"{arguments['tool']}:{arguments['action']}")
+controlplane/mcp_server.py.bak-notification-fix-137-
+controlplane/mcp_server.py.bak-notification-fix-138-
+controlplane/mcp_server.py.bak-notification-fix-139-class MCPStdioServer:
+controlplane/mcp_server.py.bak-notification-fix-140-    """Minimal JSON-RPC stdio transport for MCP hosts such as Gemini CLI."""
+controlplane/mcp_server.py.bak-notification-fix-141-
+controlplane/mcp_server.py.bak-notification-fix-142-    PROTOCOL_VERSION = "2025-06-18"
+controlplane/mcp_server.py.bak-notification-fix-143-
+controlplane/mcp_server.py.bak-notification-fix-144-    def __init__(self, server: ForgeOSMCPServer) -> None:
+controlplane/mcp_server.py.bak-notification-fix-145-        self.server = server
+controlplane/mcp_server.py.bak-notification-fix-146-
+--
+tests/test_gemini_mcp_runtime.py-29-    workspace.mkdir()
+tests/test_gemini_mcp_runtime.py-30-    adapter = SafeWorkspaceAdapter(workspace)
+tests/test_gemini_mcp_runtime.py-31-
+tests/test_gemini_mcp_runtime.py-32-    result = adapter.write("site/index.html", "<h1>ForgeOS</h1>")
+tests/test_gemini_mcp_runtime.py-33-
+tests/test_gemini_mcp_runtime.py-34-    assert result["status"] == "completed"
+tests/test_gemini_mcp_runtime.py-35-    assert (workspace / "site/index.html").read_text(encoding="utf-8") == "<h1>ForgeOS</h1>"
+tests/test_gemini_mcp_runtime.py-36-    assert adapter.read("site/index.html")["content"] == "<h1>ForgeOS</h1>"
+tests/test_gemini_mcp_runtime.py-37-
+tests/test_gemini_mcp_runtime.py-38-
+tests/test_gemini_mcp_runtime.py-39-def test_trial_runtime_registers_only_governed_executors(tmp_path: Path) -> None:
+tests/test_gemini_mcp_runtime.py-40-    runtime = build_trial_runtime(tmp_path)
+tests/test_gemini_mcp_runtime.py-41-
+tests/test_gemini_mcp_runtime.py-42-    assert set(runtime["gateway"].adapters) == {
+tests/test_gemini_mcp_runtime.py-43-        "filesystem:read",
+tests/test_gemini_mcp_runtime.py:44:        "filesystem:write",
+tests/test_gemini_mcp_runtime.py-45-        "test:run",
+tests/test_gemini_mcp_runtime.py-46-        "git:status",
+tests/test_gemini_mcp_runtime.py-47-        "git:commit",
+tests/test_gemini_mcp_runtime.py-48-        "git:push",
+tests/test_gemini_mcp_runtime.py-49-        "secrets:read",
+tests/test_gemini_mcp_runtime.py-50-    }
+tests/test_gemini_mcp_runtime.py-51-    assert "shell:exec" not in runtime["gateway"].adapters
+tests/test_gemini_mcp_runtime.py-52-
+tests/test_gemini_mcp_runtime.py-53-
+tests/test_gemini_mcp_runtime.py-54-def test_git_status_is_allowed_inside_repository_scope(tmp_path: Path) -> None:
+tests/test_gemini_mcp_runtime.py-55-    runtime = build_trial_runtime(tmp_path)
+tests/test_gemini_mcp_runtime.py-56-    result = runtime["gateway"].request(
+tests/test_gemini_mcp_runtime.py-57-        runtime["task_id"],
+tests/test_gemini_mcp_runtime.py-58-        runtime["agent_id"],
+tests/test_gemini_mcp_runtime.py-59-        "git",
+tests/test_gemini_mcp_runtime.py-60-        "status",
+tests/test_gemini_mcp_runtime.py-61-        str(runtime["repository"]),
+tests/test_gemini_mcp_runtime.py-62-        {"repository": str(runtime["repository"])},
+tests/test_gemini_mcp_runtime.py-63-        executor_id="git:status",
+tests/test_gemini_mcp_runtime.py-64-    )
+tests/test_gemini_mcp_runtime.py-65-
+tests/test_gemini_mcp_runtime.py-66-    assert result["verdict"] == "allow"
+tests/test_gemini_mcp_runtime.py-67-    assert result["result"]["status"] == "completed"
+tests/test_gemini_mcp_runtime.py-68-
+tests/test_gemini_mcp_runtime.py-69-
+tests/test_gemini_mcp_runtime.py-70-def test_feature_push_executes_but_main_push_is_denied(tmp_path: Path) -> None:
+tests/test_gemini_mcp_runtime.py-71-    runtime = build_trial_runtime(tmp_path)
+tests/test_gemini_mcp_runtime.py-72-    gateway = runtime["gateway"]
+tests/test_gemini_mcp_runtime.py-73-    task_id = runtime["task_id"]
+tests/test_gemini_mcp_runtime.py-74-    agent_id = runtime["agent_id"]
+--
+tests/test_scoped_authority.py-35-
+tests/test_scoped_authority.py-36-
+tests/test_scoped_authority.py-37-def test_unknown_scope_dimension_fails_closed():
+tests/test_scoped_authority.py-38-    with pytest.raises(ValueError, match="unknown scope dimension"):
+tests/test_scoped_authority.py-39-        Scope.from_dict({"tool": "git", "account": "all"})
+tests/test_scoped_authority.py-40-
+tests/test_scoped_authority.py-41-
+tests/test_scoped_authority.py-42-def test_scoped_request_allows_in_scope_without_human_approval(tmp_path):
+tests/test_scoped_authority.py-43-    cp = make_cp(tmp_path)
+tests/test_scoped_authority.py-44-    task, grant = grant_builder(cp)
+tests/test_scoped_authority.py-45-    result = cp.request_scoped(task.task_id, "builder", "git", "push", "company/site", {"branch": "feature/home"})
+tests/test_scoped_authority.py-46-    assert result["verdict"] == "allow"
+tests/test_scoped_authority.py-47-    assert result["grant_id"] == grant.grant_id
+tests/test_scoped_authority.py-48-
+tests/test_scoped_authority.py-49-
+tests/test_scoped_authority.py:50:def test_filesystem_write_path_traversal_is_denied_by_control_plane(tmp_path):
+tests/test_scoped_authority.py-51-    cp = ControlPlane(tmp_path / "controlplane")
+tests/test_scoped_authority.py-52-    cp.register("builder", owner="human", capabilities=["GIT_PUSH", "GIT_COMMIT"])
+tests/test_scoped_authority.py-53-
+tests/test_scoped_authority.py-54-    workspace = tmp_path / "workspace"
+tests/test_scoped_authority.py-55-    workspace.mkdir()
+tests/test_scoped_authority.py-56-
+tests/test_scoped_authority.py-57-    task = cp.create_task(
+tests/test_scoped_authority.py-58-        "task-write",
+tests/test_scoped_authority.py-59-        owner="human",
+tests/test_scoped_authority.py-60-        purpose="Write website files",
+tests/test_scoped_authority.py-61-        expires_at=FUTURE,
+tests/test_scoped_authority.py-62-    )
+tests/test_scoped_authority.py-63-
+tests/test_scoped_authority.py-64-    cp.issue_grant(
+tests/test_scoped_authority.py-65-        task.task_id,
+tests/test_scoped_authority.py-66-        "builder",
+tests/test_scoped_authority.py-67-        "FS_WRITE",
+tests/test_scoped_authority.py-68-        {
+tests/test_scoped_authority.py-69-            "tool": "filesystem",
+tests/test_scoped_authority.py-70-            "action": "write",
+tests/test_scoped_authority.py-71-            "workspace": str(workspace),
+tests/test_scoped_authority.py-72-        },
+tests/test_scoped_authority.py-73-        "human",
+tests/test_scoped_authority.py-74-        FUTURE,
+tests/test_scoped_authority.py-75-    )
+tests/test_scoped_authority.py-76-
+tests/test_scoped_authority.py-77-    result = cp.request_scoped(
+tests/test_scoped_authority.py-78-        task.task_id,
+tests/test_scoped_authority.py-79-        "builder",
+tests/test_scoped_authority.py-80-        "filesystem",
+--
+examples/forgeos_gemini_mcp_server.py-107-
+examples/forgeos_gemini_mcp_server.py-108-    workspace_path.mkdir(parents=True, exist_ok=True)
+examples/forgeos_gemini_mcp_server.py-109-    state_path.mkdir(parents=True, exist_ok=True)
+examples/forgeos_gemini_mcp_server.py-110-    _ensure_git_repo(workspace_path, remote_path)
+examples/forgeos_gemini_mcp_server.py-111-
+examples/forgeos_gemini_mcp_server.py-112-    cp = ControlPlane(state_path)
+examples/forgeos_gemini_mcp_server.py-113-    _ensure_authority(cp, workspace_path, workspace_path)
+examples/forgeos_gemini_mcp_server.py-114-    worker = ExecutionWorker(cp, b"forgeos-gemini-trial-execution-key")
+examples/forgeos_gemini_mcp_server.py-115-    gateway = RuntimeGateway(cp, worker, b"forgeos-gemini-trial-execution-key")
+examples/forgeos_gemini_mcp_server.py-116-
+examples/forgeos_gemini_mcp_server.py-117-    workspace_adapter = SafeWorkspaceAdapter(workspace_path)
+examples/forgeos_gemini_mcp_server.py-118-    git_adapter = SafeGitAdapter(workspace_path, remote_path)
+examples/forgeos_gemini_mcp_server.py-119-    test_adapter = SafeTestAdapter(workspace_path)
+examples/forgeos_gemini_mcp_server.py-120-
+examples/forgeos_gemini_mcp_server.py-121-    gateway.register_adapter("filesystem:read", str(workspace_path), workspace_adapter)
+examples/forgeos_gemini_mcp_server.py:122:    gateway.register_adapter("filesystem:write", str(workspace_path), workspace_adapter)
+examples/forgeos_gemini_mcp_server.py-123-    gateway.register_adapter("test:run", str(workspace_path), test_adapter)
+examples/forgeos_gemini_mcp_server.py-124-    gateway.register_adapter("git:status", str(workspace_path), git_adapter)
+examples/forgeos_gemini_mcp_server.py-125-    gateway.register_adapter("git:commit", str(workspace_path), git_adapter)
+examples/forgeos_gemini_mcp_server.py-126-    gateway.register_adapter("git:push", str(workspace_path), git_adapter)
+examples/forgeos_gemini_mcp_server.py-127-    gateway.register_adapter("secrets:read", "trial-secrets", NoSecretAdapter())
+examples/forgeos_gemini_mcp_server.py-128-
+examples/forgeos_gemini_mcp_server.py-129-    return {
+examples/forgeos_gemini_mcp_server.py-130-        "controlplane": cp,
+examples/forgeos_gemini_mcp_server.py-131-        "worker": worker,
+examples/forgeos_gemini_mcp_server.py-132-        "gateway": gateway,
+examples/forgeos_gemini_mcp_server.py-133-        "workspace": workspace_path,
+examples/forgeos_gemini_mcp_server.py-134-        "repository": workspace_path,
+examples/forgeos_gemini_mcp_server.py-135-        "remote": remote_path,
+examples/forgeos_gemini_mcp_server.py-136-        "task_id": TRIAL_TASK_ID,
+examples/forgeos_gemini_mcp_server.py-137-        "agent_id": TRIAL_AGENT_ID,
+examples/forgeos_gemini_mcp_server.py-138-    }
+examples/forgeos_gemini_mcp_server.py-139-
+examples/forgeos_gemini_mcp_server.py-140-
+examples/forgeos_gemini_mcp_server.py-141-def main() -> None:
+examples/forgeos_gemini_mcp_server.py-142-    parser = argparse.ArgumentParser(description=__doc__)
+examples/forgeos_gemini_mcp_server.py-143-    parser.add_argument("--workspace", required=True)
+examples/forgeos_gemini_mcp_server.py-144-    parser.add_argument("--state-dir", required=True)
+examples/forgeos_gemini_mcp_server.py-145-    parser.add_argument("--task-id", default=TRIAL_TASK_ID)
+examples/forgeos_gemini_mcp_server.py-146-    parser.add_argument("--agent-id", default=TRIAL_AGENT_ID)
+examples/forgeos_gemini_mcp_server.py-147-    args = parser.parse_args()
+examples/forgeos_gemini_mcp_server.py-148-
+examples/forgeos_gemini_mcp_server.py-149-    if args.task_id != TRIAL_TASK_ID or args.agent_id != TRIAL_AGENT_ID:
+examples/forgeos_gemini_mcp_server.py-150-        raise SystemExit("only the fixed disposable trial task and agent are supported")
+examples/forgeos_gemini_mcp_server.py-151-
+examples/forgeos_gemini_mcp_server.py-152-    runtime = build_trial_runtime(Path(args.workspace).parent, workspace=args.workspace, state_dir=args.state_dir)
+--
+examples/real_agent_trial.py-49-        expires,
+examples/real_agent_trial.py-50-    )
+examples/real_agent_trial.py-51-
+examples/real_agent_trial.py-52-    worker = ExecutionWorker(cp, KEY)
+examples/real_agent_trial.py-53-    gateway = RuntimeGateway(cp, worker, KEY)
+examples/real_agent_trial.py-54-    workspace = str(Path(state_dir).resolve())
+examples/real_agent_trial.py-55-
+examples/real_agent_trial.py-56-    def write_file(request):
+examples/real_agent_trial.py-57-        name = str(request.detail.get("name", "forgeos-agent-trial.txt"))
+examples/real_agent_trial.py-58-        if Path(name).name != name or not name.endswith(".txt"):
+examples/real_agent_trial.py-59-            raise ValueError("trial file must be a local .txt filename")
+examples/real_agent_trial.py-60-        path = Path(workspace) / name
+examples/real_agent_trial.py-61-        path.write_text(str(request.detail.get("content", "ForgeOS real agent trial\n")), encoding="utf-8")
+examples/real_agent_trial.py-62-        return {"status": "completed", "path": name, "simulated": True}
+examples/real_agent_trial.py-63-
+examples/real_agent_trial.py:64:    gateway.register_adapter("filesystem:write", workspace, write_file)
+examples/real_agent_trial.py-65-    gateway.register_adapter("git:push", "forgeos-agent-trial", SimulatedToolAdapter("git-push"))
+
+=== EXISTING WRITE TESTS ===
+tests/test_controlplane_execution.py-21-        assert result["result"] == {"written": True}
+tests/test_controlplane_execution.py-22-        assert seen == ["workspace/a.txt"]
+tests/test_controlplane_execution.py-23-
+tests/test_controlplane_execution.py-24-
+tests/test_controlplane_execution.py-25-def test_control_plane_denies_missing_capability_before_executor():
+tests/test_controlplane_execution.py-26-    with tempfile.TemporaryDirectory() as td:
+tests/test_controlplane_execution.py-27-        cp = ControlPlane(td)
+tests/test_controlplane_execution.py-28-        cp.register("builder", "human", ["FS_READ"])
+tests/test_controlplane_execution.py-29-        executed = False
+tests/test_controlplane_execution.py-30-
+tests/test_controlplane_execution.py-31-        def executor(_req):
+tests/test_controlplane_execution.py-32-            nonlocal executed
+tests/test_controlplane_execution.py-33-            executed = True
+tests/test_controlplane_execution.py-34-            return {"should": "not happen"}
+tests/test_controlplane_execution.py-35-
+tests/test_controlplane_execution.py:36:        result = cp.request("builder", "filesystem", "write", "blocked.txt", executor=executor)
+tests/test_controlplane_execution.py-37-
+tests/test_controlplane_execution.py-38-        assert result["verdict"] == "deny"
+tests/test_controlplane_execution.py-39-        assert executed is False
+--
+tests/test_mcp_server.py-2-
+tests/test_mcp_server.py-3-from pathlib import Path
+tests/test_mcp_server.py-4-
+tests/test_mcp_server.py-5-import pytest
+tests/test_mcp_server.py-6-
+tests/test_mcp_server.py-7-from controlplane.mcp_server import ForgeOSMCPServer
+tests/test_mcp_server.py-8-from examples.real_agent_trial import build_trial_controlplane
+tests/test_mcp_server.py-9-
+tests/test_mcp_server.py-10-
+tests/test_mcp_server.py-11-def test_mcp_exposes_only_governed_tools(tmp_path: Path) -> None:
+tests/test_mcp_server.py-12-    _cp, gateway = build_trial_controlplane(tmp_path)
+tests/test_mcp_server.py-13-    server = ForgeOSMCPServer(gateway, "real-agent-website-build", "website-agent")
+tests/test_mcp_server.py-14-
+tests/test_mcp_server.py-15-    assert server.list_tools() == {
+tests/test_mcp_server.py-16-        "read_file",
+tests/test_mcp_server.py:17:        "write_file",
+tests/test_mcp_server.py-18-        "run_test",
+tests/test_mcp_server.py-19-        "git_status",
+tests/test_mcp_server.py-20-        "git_commit",
+tests/test_mcp_server.py-21-        "git_push",
+tests/test_mcp_server.py-22-        "request_action",
+tests/test_mcp_server.py-23-    }
+tests/test_mcp_server.py-24-    assert "shell" not in server.list_tools()
+tests/test_mcp_server.py-25-    assert "exec" not in server.list_tools()
+tests/test_mcp_server.py-26-
+tests/test_mcp_server.py-27-
+tests/test_mcp_server.py-28-def test_mcp_write_is_governed_by_task_scope(tmp_path: Path) -> None:
+tests/test_mcp_server.py-29-    _cp, gateway = build_trial_controlplane(tmp_path)
+tests/test_mcp_server.py-30-    server = ForgeOSMCPServer(gateway, "real-agent-website-build", "website-agent")
+tests/test_mcp_server.py-31-
+tests/test_mcp_server.py-32-    result = server.call_tool(
+tests/test_mcp_server.py:33:        "write_file",
+tests/test_mcp_server.py-34-        {"workspace": str(tmp_path), "name": "site.txt", "content": "hello"},
+tests/test_mcp_server.py-35-    )
+tests/test_mcp_server.py-36-
+tests/test_mcp_server.py-37-    assert result["verdict"] == "allow"
+tests/test_mcp_server.py-38-    assert (tmp_path / "site.txt").read_text() == "hello"
+tests/test_mcp_server.py-39-
+tests/test_mcp_server.py-40-
+tests/test_mcp_server.py-41-def test_mcp_git_push_scope_escape_is_denied(tmp_path: Path) -> None:
+tests/test_mcp_server.py-42-    _cp, gateway = build_trial_controlplane(tmp_path)
+tests/test_mcp_server.py-43-    server = ForgeOSMCPServer(gateway, "real-agent-website-build", "website-agent")
+tests/test_mcp_server.py-44-
+tests/test_mcp_server.py-45-    result = server.call_tool(
+tests/test_mcp_server.py-46-        "git_push",
+tests/test_mcp_server.py-47-        {"repository": "forgeos-agent-trial", "branch": "main"},
+tests/test_mcp_server.py-48-    )
+tests/test_mcp_server.py-49-
+tests/test_mcp_server.py-50-    assert result["verdict"] == "deny"
+tests/test_mcp_server.py-51-
+tests/test_mcp_server.py-52-
+tests/test_mcp_server.py-53-def test_mcp_sensitive_action_requires_approval_and_does_not_execute(tmp_path: Path) -> None:
+tests/test_mcp_server.py-54-    _cp, gateway = build_trial_controlplane(tmp_path)
+tests/test_mcp_server.py-55-    server = ForgeOSMCPServer(gateway, "real-agent-website-build", "website-agent")
+tests/test_mcp_server.py-56-
+tests/test_mcp_server.py-57-    result = server.call_tool("request_action", {"tool": "secrets", "action": "read", "target": "trial-secrets"})
+tests/test_mcp_server.py-58-
+tests/test_mcp_server.py-59-    assert result["verdict"] == "ask"
+tests/test_mcp_server.py-60-    assert result["approval_id"]
+tests/test_mcp_server.py-61-
+tests/test_mcp_server.py-62-
+tests/test_mcp_server.py-63-def test_mcp_unknown_tool_fails_closed(tmp_path: Path) -> None:
+tests/test_mcp_server.py-64-    _cp, gateway = build_trial_controlplane(tmp_path)
+tests/test_mcp_server.py-65-    server = ForgeOSMCPServer(gateway, "real-agent-website-build", "website-agent")
+tests/test_mcp_server.py-66-
+tests/test_mcp_server.py-67-    with pytest.raises(ValueError, match="unknown MCP tool"):
+tests/test_mcp_server.py-68-        server.call_tool("shell", {"command": "id"})
+--
+tests/test_mcp_stdio.py-4-from pathlib import Path
+tests/test_mcp_stdio.py-5-
+tests/test_mcp_stdio.py-6-from controlplane.mcp_server import ForgeOSMCPServer, MCPStdioServer
+tests/test_mcp_stdio.py-7-from examples.real_agent_trial import build_trial_controlplane
+tests/test_mcp_stdio.py-8-
+tests/test_mcp_stdio.py-9-
+tests/test_mcp_stdio.py-10-def test_stdio_lists_only_governed_tools(tmp_path: Path) -> None:
+tests/test_mcp_stdio.py-11-    _cp, gateway = build_trial_controlplane(tmp_path)
+tests/test_mcp_stdio.py-12-    server = MCPStdioServer(ForgeOSMCPServer(gateway, "real-agent-website-build", "website-agent"))
+tests/test_mcp_stdio.py-13-
+tests/test_mcp_stdio.py-14-    response = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+tests/test_mcp_stdio.py-15-
+tests/test_mcp_stdio.py-16-    names = {tool["name"] for tool in response["result"]["tools"]}
+tests/test_mcp_stdio.py-17-    assert names == {
+tests/test_mcp_stdio.py-18-        "read_file",
+tests/test_mcp_stdio.py:19:        "write_file",
+tests/test_mcp_stdio.py-20-        "run_test",
+tests/test_mcp_stdio.py-21-        "git_status",
+tests/test_mcp_stdio.py-22-        "git_commit",
+tests/test_mcp_stdio.py-23-        "git_push",
+tests/test_mcp_stdio.py-24-        "request_action",
+tests/test_mcp_stdio.py-25-    }
+tests/test_mcp_stdio.py-26-    assert "shell" not in names
+tests/test_mcp_stdio.py-27-
+tests/test_mcp_stdio.py-28-
+tests/test_mcp_stdio.py-29-def test_stdio_initialized_notification_has_no_response(tmp_path: Path) -> None:
+tests/test_mcp_stdio.py-30-    _cp, gateway = build_trial_controlplane(tmp_path)
+tests/test_mcp_stdio.py-31-    server = MCPStdioServer(
+tests/test_mcp_stdio.py-32-        ForgeOSMCPServer(gateway, "real-agent-website-build", "website-agent")
+tests/test_mcp_stdio.py-33-    )
+tests/test_mcp_stdio.py-34-
+tests/test_mcp_stdio.py-35-    response = server.handle(
+tests/test_mcp_stdio.py-36-        {
+tests/test_mcp_stdio.py-37-            "jsonrpc": "2.0",
+tests/test_mcp_stdio.py-38-            "method": "notifications/initialized",
+tests/test_mcp_stdio.py-39-            "params": {},
+tests/test_mcp_stdio.py-40-        }
+tests/test_mcp_stdio.py-41-    )
+tests/test_mcp_stdio.py-42-
+tests/test_mcp_stdio.py-43-    assert response is None
+tests/test_mcp_stdio.py-44-
+tests/test_mcp_stdio.py-45-
+tests/test_mcp_stdio.py-46-def test_stdio_tool_call_uses_bound_session(tmp_path: Path) -> None:
+tests/test_mcp_stdio.py-47-    _cp, gateway = build_trial_controlplane(tmp_path)
+tests/test_mcp_stdio.py-48-    server = MCPStdioServer(ForgeOSMCPServer(gateway, "real-agent-website-build", "website-agent"))
+tests/test_mcp_stdio.py-49-
+tests/test_mcp_stdio.py-50-    response = server.handle(
+tests/test_mcp_stdio.py-51-        {
+tests/test_mcp_stdio.py-52-            "jsonrpc": "2.0",
+tests/test_mcp_stdio.py-53-            "id": 2,
+tests/test_mcp_stdio.py-54-            "method": "tools/call",
+tests/test_mcp_stdio.py-55-            "params": {
+tests/test_mcp_stdio.py-56-                "name": "git_push",
+tests/test_mcp_stdio.py-57-                "arguments": {"repository": "forgeos-agent-trial", "branch": "feature/home"},
+tests/test_mcp_stdio.py-58-            },
+tests/test_mcp_stdio.py-59-        }
+tests/test_mcp_stdio.py-60-    )
+tests/test_mcp_stdio.py-61-
+tests/test_mcp_stdio.py-62-    payload = json.loads(response["result"]["content"][0]["text"])
+tests/test_mcp_stdio.py-63-    assert payload["verdict"] == "allow"
+tests/test_mcp_stdio.py-64-    assert payload["task_id"] == "real-agent-website-build"
+tests/test_mcp_stdio.py-65-
+tests/test_mcp_stdio.py-66-
+tests/test_mcp_stdio.py-67-def test_stdio_malformed_tool_call_fails_closed(tmp_path: Path) -> None:
+tests/test_mcp_stdio.py-68-    _cp, gateway = build_trial_controlplane(tmp_path)
+tests/test_mcp_stdio.py-69-    server = MCPStdioServer(ForgeOSMCPServer(gateway, "real-agent-website-build", "website-agent"))
+--
+tests/test_gemini_trial_runner.py-12-    build_gemini_command,
+tests/test_gemini_trial_runner.py-13-    build_trial_environment,
+tests/test_gemini_trial_runner.py-14-    prepare_trial,
+tests/test_gemini_trial_runner.py-15-)
+tests/test_gemini_trial_runner.py-16-
+tests/test_gemini_trial_runner.py-17-
+tests/test_gemini_trial_runner.py-18-def test_gemini_settings_allow_only_forgeos_mcp(tmp_path: Path) -> None:
+tests/test_gemini_trial_runner.py-19-    settings = build_gemini_settings(tmp_path, "forgeos-server.py")
+tests/test_gemini_trial_runner.py-20-
+tests/test_gemini_trial_runner.py-21-    assert settings["mcp"]["allowed"] == ["forgeos"]
+tests/test_gemini_trial_runner.py-22-    # ForgeOS is the authoritative execution gate. Gemini must not add a
+tests/test_gemini_trial_runner.py-23-    # second confirmation layer that can be bypassed or drift from policy.
+tests/test_gemini_trial_runner.py-24-    assert settings["mcpServers"]["forgeos"]["trust"] is False
+tests/test_gemini_trial_runner.py-25-    assert settings["mcpServers"]["forgeos"]["includeTools"] == [
+tests/test_gemini_trial_runner.py-26-        "read_file",
+tests/test_gemini_trial_runner.py:27:        "write_file",
+tests/test_gemini_trial_runner.py-28-        "run_test",
+tests/test_gemini_trial_runner.py-29-        "git_status",
+tests/test_gemini_trial_runner.py-30-        "git_commit",
+tests/test_gemini_trial_runner.py-31-        "git_push",
+tests/test_gemini_trial_runner.py-32-        "request_action",
+tests/test_gemini_trial_runner.py-33-    ]
+tests/test_gemini_trial_runner.py-34-    assert "tools" not in settings or "core" not in settings["tools"]
+tests/test_gemini_trial_runner.py-35-    assert settings["security"]["disableYoloMode"] is True
+tests/test_gemini_trial_runner.py-36-
+tests/test_gemini_trial_runner.py-37-
+tests/test_gemini_trial_runner.py-38-def test_gemini_settings_do_not_contain_credentials(tmp_path: Path) -> None:
+tests/test_gemini_trial_runner.py-39-    settings = build_gemini_settings(tmp_path, "forgeos-server.py")
+tests/test_gemini_trial_runner.py-40-    serialized = json.dumps(settings).lower()
+tests/test_gemini_trial_runner.py-41-
+tests/test_gemini_trial_runner.py-42-    assert "api_key" not in serialized
+tests/test_gemini_trial_runner.py-43-    assert "token" not in serialized
+tests/test_gemini_trial_runner.py-44-    assert "secret" not in serialized
+tests/test_gemini_trial_runner.py-45-
+tests/test_gemini_trial_runner.py-46-
+tests/test_gemini_trial_runner.py-47-def test_gemini_api_key_auth_is_explicitly_selected(tmp_path: Path) -> None:
+tests/test_gemini_trial_runner.py-48-    settings = build_gemini_settings(
+tests/test_gemini_trial_runner.py-49-        tmp_path,
+tests/test_gemini_trial_runner.py-50-        "forgeos-server.py",
+tests/test_gemini_trial_runner.py-51-        provider_auth="gemini-api-key",
+tests/test_gemini_trial_runner.py-52-    )
+tests/test_gemini_trial_runner.py-53-
+tests/test_gemini_trial_runner.py-54-    assert settings["security"]["auth"]["selectedType"] == "gemini-api-key"
+tests/test_gemini_trial_runner.py-55-
+tests/test_gemini_trial_runner.py-56-
+tests/test_gemini_trial_runner.py-57-def test_gemini_command_uses_supported_model_and_no_yolo(tmp_path: Path) -> None:
+tests/test_gemini_trial_runner.py-58-    command = build_gemini_command(tmp_path, "Build the trial website")
+tests/test_gemini_trial_runner.py-59-
+tests/test_gemini_trial_runner.py-60-    assert command[0] == "gemini"
+tests/test_gemini_trial_runner.py-61-    assert "--yolo" not in command
+tests/test_gemini_trial_runner.py-62-    assert command[command.index("--model") + 1] == DEFAULT_GEMINI_MODEL
+tests/test_gemini_trial_runner.py-63-    assert "--approval-mode" in command
+tests/test_gemini_trial_runner.py-64-    assert "default" in command
+tests/test_gemini_trial_runner.py-65-
+tests/test_gemini_trial_runner.py-66-
+tests/test_gemini_trial_runner.py-67-def test_gemini_command_rejects_empty_model(tmp_path: Path) -> None:
+tests/test_gemini_trial_runner.py-68-    with pytest.raises(ValueError, match="model"):
+tests/test_gemini_trial_runner.py-69-        build_gemini_command(tmp_path, "Build the trial website", model=" ")
+tests/test_gemini_trial_runner.py-70-
+tests/test_gemini_trial_runner.py-71-
+tests/test_gemini_trial_runner.py-72-def test_prepare_trial_creates_complete_isolated_runtime(tmp_path: Path) -> None:
+tests/test_gemini_trial_runner.py-73-    paths = prepare_trial(tmp_path, "forgeos-server.py")
+tests/test_gemini_trial_runner.py-74-
+tests/test_gemini_trial_runner.py-75-    assert paths.root == tmp_path.resolve()
+tests/test_gemini_trial_runner.py-76-    assert paths.workspace == (tmp_path / "workspace").resolve()
+tests/test_gemini_trial_runner.py-77-    assert paths.state == (tmp_path / "state").resolve()
+--
+tests/test_gemini_mcp_runtime.py-29-    workspace.mkdir()
+tests/test_gemini_mcp_runtime.py-30-    adapter = SafeWorkspaceAdapter(workspace)
+tests/test_gemini_mcp_runtime.py-31-
+tests/test_gemini_mcp_runtime.py-32-    result = adapter.write("site/index.html", "<h1>ForgeOS</h1>")
+tests/test_gemini_mcp_runtime.py-33-
+tests/test_gemini_mcp_runtime.py-34-    assert result["status"] == "completed"
+tests/test_gemini_mcp_runtime.py-35-    assert (workspace / "site/index.html").read_text(encoding="utf-8") == "<h1>ForgeOS</h1>"
+tests/test_gemini_mcp_runtime.py-36-    assert adapter.read("site/index.html")["content"] == "<h1>ForgeOS</h1>"
+tests/test_gemini_mcp_runtime.py-37-
+tests/test_gemini_mcp_runtime.py-38-
+tests/test_gemini_mcp_runtime.py-39-def test_trial_runtime_registers_only_governed_executors(tmp_path: Path) -> None:
+tests/test_gemini_mcp_runtime.py-40-    runtime = build_trial_runtime(tmp_path)
+tests/test_gemini_mcp_runtime.py-41-
+tests/test_gemini_mcp_runtime.py-42-    assert set(runtime["gateway"].adapters) == {
+tests/test_gemini_mcp_runtime.py-43-        "filesystem:read",
+tests/test_gemini_mcp_runtime.py:44:        "filesystem:write",
+tests/test_gemini_mcp_runtime.py-45-        "test:run",
+tests/test_gemini_mcp_runtime.py-46-        "git:status",
+tests/test_gemini_mcp_runtime.py-47-        "git:commit",
+tests/test_gemini_mcp_runtime.py-48-        "git:push",
+tests/test_gemini_mcp_runtime.py-49-        "secrets:read",
+tests/test_gemini_mcp_runtime.py-50-    }
+tests/test_gemini_mcp_runtime.py-51-    assert "shell:exec" not in runtime["gateway"].adapters
+tests/test_gemini_mcp_runtime.py-52-
+tests/test_gemini_mcp_runtime.py-53-
+tests/test_gemini_mcp_runtime.py-54-def test_git_status_is_allowed_inside_repository_scope(tmp_path: Path) -> None:
+tests/test_gemini_mcp_runtime.py-55-    runtime = build_trial_runtime(tmp_path)
+tests/test_gemini_mcp_runtime.py-56-    result = runtime["gateway"].request(
+tests/test_gemini_mcp_runtime.py-57-        runtime["task_id"],
+tests/test_gemini_mcp_runtime.py-58-        runtime["agent_id"],
+tests/test_gemini_mcp_runtime.py-59-        "git",
+tests/test_gemini_mcp_runtime.py-60-        "status",
+tests/test_gemini_mcp_runtime.py-61-        str(runtime["repository"]),
+tests/test_gemini_mcp_runtime.py-62-        {"repository": str(runtime["repository"])},
+tests/test_gemini_mcp_runtime.py-63-        executor_id="git:status",
+tests/test_gemini_mcp_runtime.py-64-    )
+tests/test_gemini_mcp_runtime.py-65-
+tests/test_gemini_mcp_runtime.py-66-    assert result["verdict"] == "allow"
+tests/test_gemini_mcp_runtime.py-67-    assert result["result"]["status"] == "completed"
+tests/test_gemini_mcp_runtime.py-68-
+tests/test_gemini_mcp_runtime.py-69-
+tests/test_gemini_mcp_runtime.py-70-def test_feature_push_executes_but_main_push_is_denied(tmp_path: Path) -> None:
+tests/test_gemini_mcp_runtime.py-71-    runtime = build_trial_runtime(tmp_path)
+tests/test_gemini_mcp_runtime.py-72-    gateway = runtime["gateway"]
+tests/test_gemini_mcp_runtime.py-73-    task_id = runtime["task_id"]
+tests/test_gemini_mcp_runtime.py-74-    agent_id = runtime["agent_id"]
+tests/test_gemini_mcp_runtime.py-75-    repo = runtime["repository"]
+tests/test_gemini_mcp_runtime.py-76-
+tests/test_gemini_mcp_runtime.py-77-    (repo / "index.html").write_text("<h1>ForgeOS</h1>\n", encoding="utf-8")
+tests/test_gemini_mcp_runtime.py-78-    subprocess.run(["git", "add", "index.html"], cwd=repo, check=True)
+tests/test_gemini_mcp_runtime.py-79-    subprocess.run(["git", "commit", "-m", "trial"], cwd=repo, check=True, capture_output=True, text=True)
+tests/test_gemini_mcp_runtime.py-80-
+tests/test_gemini_mcp_runtime.py-81-    feature = gateway.request(
+tests/test_gemini_mcp_runtime.py-82-        task_id,
+tests/test_gemini_mcp_runtime.py-83-        agent_id,
+tests/test_gemini_mcp_runtime.py-84-        "git",
+tests/test_gemini_mcp_runtime.py-85-        "push",
+tests/test_gemini_mcp_runtime.py-86-        str(repo),
+tests/test_gemini_mcp_runtime.py-87-        {"repository": str(repo), "branch": "feature/site"},
+tests/test_gemini_mcp_runtime.py-88-        executor_id="git:push",
+tests/test_gemini_mcp_runtime.py-89-    )
+tests/test_gemini_mcp_runtime.py-90-    assert feature["verdict"] == "allow"
+tests/test_gemini_mcp_runtime.py-91-
+tests/test_gemini_mcp_runtime.py-92-    main = gateway.request(
+tests/test_gemini_mcp_runtime.py-93-        task_id,
+tests/test_gemini_mcp_runtime.py-94-        agent_id,
+--
+tests/test_gemini_mcp_runtime.py-152-    process.stdin.write(json.dumps(message) + "\n")
+tests/test_gemini_mcp_runtime.py-153-    process.stdin.flush()
+tests/test_gemini_mcp_runtime.py-154-    return json.loads(process.stdout.readline())
+tests/test_gemini_mcp_runtime.py-155-
+tests/test_gemini_mcp_runtime.py-156-
+tests/test_gemini_mcp_runtime.py-157-def test_real_mcp_launcher_exposes_only_fixed_tools_and_executes_governed_write(tmp_path: Path) -> None:
+tests/test_gemini_mcp_runtime.py-158-    process, workspace = _start_server(tmp_path)
+tests/test_gemini_mcp_runtime.py-159-    try:
+tests/test_gemini_mcp_runtime.py-160-        initialize = _rpc(process, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+tests/test_gemini_mcp_runtime.py-161-        assert initialize["result"]["serverInfo"]["name"] == "forgeos-control-plane"
+tests/test_gemini_mcp_runtime.py-162-
+tests/test_gemini_mcp_runtime.py-163-        tools = _rpc(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+tests/test_gemini_mcp_runtime.py-164-        names = {tool["name"] for tool in tools["result"]["tools"]}
+tests/test_gemini_mcp_runtime.py-165-        assert names == {
+tests/test_gemini_mcp_runtime.py-166-            "read_file",
+tests/test_gemini_mcp_runtime.py:167:            "write_file",
+tests/test_gemini_mcp_runtime.py-168-            "run_test",
+tests/test_gemini_mcp_runtime.py-169-            "git_status",
+tests/test_gemini_mcp_runtime.py-170-            "git_commit",
+tests/test_gemini_mcp_runtime.py-171-            "git_push",
+tests/test_gemini_mcp_runtime.py-172-            "request_action",
+tests/test_gemini_mcp_runtime.py-173-        }
+tests/test_gemini_mcp_runtime.py-174-        assert "shell" not in names
+tests/test_gemini_mcp_runtime.py-175-
+tests/test_gemini_mcp_runtime.py-176-        write = _rpc(
+tests/test_gemini_mcp_runtime.py-177-            process,
+tests/test_gemini_mcp_runtime.py-178-            {
+tests/test_gemini_mcp_runtime.py-179-                "jsonrpc": "2.0",
+tests/test_gemini_mcp_runtime.py-180-                "id": 3,
+tests/test_gemini_mcp_runtime.py-181-                "method": "tools/call",
+tests/test_gemini_mcp_runtime.py-182-                "params": {
+tests/test_gemini_mcp_runtime.py:183:                    "name": "write_file",
+tests/test_gemini_mcp_runtime.py-184-                    "arguments": {
+tests/test_gemini_mcp_runtime.py-185-                        "workspace": str(workspace),
+tests/test_gemini_mcp_runtime.py-186-                        "name": "index.html",
+tests/test_gemini_mcp_runtime.py-187-                        "content": "<h1>ForgeOS</h1>\n",
+tests/test_gemini_mcp_runtime.py-188-                    },
+tests/test_gemini_mcp_runtime.py-189-                },
+tests/test_gemini_mcp_runtime.py-190-            },
+tests/test_gemini_mcp_runtime.py-191-        )
+tests/test_gemini_mcp_runtime.py-192-        assert write["result"]["isError"] is False
+tests/test_gemini_mcp_runtime.py-193-        assert (workspace / "index.html").read_text(encoding="utf-8") == "<h1>ForgeOS</h1>\n"
+tests/test_gemini_mcp_runtime.py-194-    finally:
+tests/test_gemini_mcp_runtime.py-195-        if process.stdin is not None:
+tests/test_gemini_mcp_runtime.py-196-            process.stdin.close()
+tests/test_gemini_mcp_runtime.py-197-        process.terminate()
+tests/test_gemini_mcp_runtime.py-198-        process.wait(timeout=5)
+--
+tests/test_scoped_authority.py-35-
+tests/test_scoped_authority.py-36-
+tests/test_scoped_authority.py-37-def test_unknown_scope_dimension_fails_closed():
+tests/test_scoped_authority.py-38-    with pytest.raises(ValueError, match="unknown scope dimension"):
+tests/test_scoped_authority.py-39-        Scope.from_dict({"tool": "git", "account": "all"})
+tests/test_scoped_authority.py-40-
+tests/test_scoped_authority.py-41-
+tests/test_scoped_authority.py-42-def test_scoped_request_allows_in_scope_without_human_approval(tmp_path):
+tests/test_scoped_authority.py-43-    cp = make_cp(tmp_path)
+tests/test_scoped_authority.py-44-    task, grant = grant_builder(cp)
+tests/test_scoped_authority.py-45-    result = cp.request_scoped(task.task_id, "builder", "git", "push", "company/site", {"branch": "feature/home"})
+tests/test_scoped_authority.py-46-    assert result["verdict"] == "allow"
+tests/test_scoped_authority.py-47-    assert result["grant_id"] == grant.grant_id
+tests/test_scoped_authority.py-48-
+tests/test_scoped_authority.py-49-
+tests/test_scoped_authority.py:50:def test_filesystem_write_path_traversal_is_denied_by_control_plane(tmp_path):
+tests/test_scoped_authority.py-51-    cp = ControlPlane(tmp_path / "controlplane")
+tests/test_scoped_authority.py-52-    cp.register("builder", owner="human", capabilities=["GIT_PUSH", "GIT_COMMIT"])
+tests/test_scoped_authority.py-53-
+tests/test_scoped_authority.py-54-    workspace = tmp_path / "workspace"
+tests/test_scoped_authority.py-55-    workspace.mkdir()
+tests/test_scoped_authority.py-56-
+tests/test_scoped_authority.py-57-    task = cp.create_task(
+tests/test_scoped_authority.py-58-        "task-write",
+tests/test_scoped_authority.py-59-        owner="human",
+tests/test_scoped_authority.py:60:        purpose="Write website files",
+tests/test_scoped_authority.py-61-        expires_at=FUTURE,
+tests/test_scoped_authority.py-62-    )
+tests/test_scoped_authority.py-63-
+tests/test_scoped_authority.py-64-    cp.issue_grant(
+tests/test_scoped_authority.py-65-        task.task_id,
+tests/test_scoped_authority.py-66-        "builder",
+tests/test_scoped_authority.py-67-        "FS_WRITE",
+tests/test_scoped_authority.py-68-        {
+tests/test_scoped_authority.py-69-            "tool": "filesystem",
+tests/test_scoped_authority.py-70-            "action": "write",
+tests/test_scoped_authority.py-71-            "workspace": str(workspace),
+tests/test_scoped_authority.py-72-        },
+tests/test_scoped_authority.py-73-        "human",
+tests/test_scoped_authority.py-74-        FUTURE,
+tests/test_scoped_authority.py-75-    )
+tests/test_scoped_authority.py-76-
+tests/test_scoped_authority.py-77-    result = cp.request_scoped(
+tests/test_scoped_authority.py-78-        task.task_id,
+tests/test_scoped_authority.py-79-        "builder",
+tests/test_scoped_authority.py-80-        "filesystem",
+tests/test_scoped_authority.py-81-        "write",
+tests/test_scoped_authority.py-82-        str(workspace),
+tests/test_scoped_authority.py-83-        {
+tests/test_scoped_authority.py-84-            "workspace": str(workspace),
+tests/test_scoped_authority.py-85-            "name": "../escape.html",
+tests/test_scoped_authority.py-86-            "content": "<h1>blocked</h1>",
+tests/test_scoped_authority.py-87-        },
+tests/test_scoped_authority.py-88-    )
+tests/test_scoped_authority.py-89-
+tests/test_scoped_authority.py-90-    assert result["verdict"] == "deny"
+tests/test_scoped_authority.py-91-    assert "workspace" in result["reason"].lower() or "path" in result["reason"].lower()
+tests/test_scoped_authority.py-92-
+tests/test_scoped_authority.py-93-
+tests/test_scoped_authority.py-94-def test_wrong_repository_and_branch_are_denied(tmp_path):
+tests/test_scoped_authority.py-95-    cp = make_cp(tmp_path)
+tests/test_scoped_authority.py-96-    task, _ = grant_builder(cp)
+tests/test_scoped_authority.py-97-    assert cp.request_scoped(task.task_id, "builder", "git", "push", "company/other", {"branch": "feature/home"})["verdict"] == "deny"
