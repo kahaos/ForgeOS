@@ -6,7 +6,49 @@ ForgeOS is an open-source **AI agent control plane** for authorization, human ap
 
 > **Agent autonomy should not mean unrestricted authority.**
 
-[Why ForgeOS?](docs/WHY_FORGEOS.md) · [Try the real-agent trial](docs/REAL_AGENT_QUICKSTART.md) · [Read the security model](docs/SECURITY_MODEL.md) · [Explore the architecture](docs/FORGEOS_ARCHITECTURE.md) · [See the roadmap](docs/ROADMAP.md)
+[Why ForgeOS?](docs/WHY_FORGEOS.md) · [Try the real-agent trial](docs/REAL_AGENT_QUICKSTART.md) · [Read the security model](docs/SECURITY_MODEL.md) · [Explore the architecture](docs/FORGEOS_ARCHITECTURE.md) · [Read the Gemini milestone](docs/MILESTONE_REAL_GEMINI_MCP.md) · [See the roadmap](docs/ROADMAP.md)
+
+## 🚀 Real Gemini MCP milestone — SUCCESS
+
+On **2026-10-04**, ForgeOS successfully executed a real external **Gemini 3.7 Flash** agent action through the ForgeOS MCP boundary.
+
+The demonstrated path was:
+
+```text
+Gemini 3.7 Flash
+      ↓
+Gemini MCP client
+      ↓
+forgeos_write_file
+      ↓
+ForgeOS MCP bridge
+      ↓
+RuntimeGateway
+      ↓
+ALLOW + task-scoped authority
+      ↓
+signed execution authorization
+      ↓
+ExecutionWorker
+      ↓
+filesystem:write
+      ↓
+bound disposable workspace
+      ↓
+site/index.html
+      ↓
+evidence ledger
+```
+
+The agent was `website-agent`, operating under task `real-agent-website-build` with `FS_WRITE` authority. It created the requested `site/index.html` with exactly 55 bytes. The resulting file hash, request digest, execution binding, and evidence digest were recorded in the committed evidence record.
+
+**159 tests passed** in the full ForgeOS regression suite after the implementation work.
+
+Read the full technical report: [Real Gemini MCP milestone](docs/MILESTONE_REAL_GEMINI_MCP.md)  
+Read the committed run record: [Gemini write evidence](evidence/gemini-write-success/2026-10-04-live-run.txt)  
+See the project history: [CHANGELOG](CHANGELOG.md)
+
+> This is a controlled, low-risk disposable trial. It is evidence of a working governed execution path, not a claim of production readiness or security certification.
 
 ## Why ForgeOS?
 
@@ -110,40 +152,41 @@ ForgeOS separates authorization from execution lifecycle governance.
 
 ## Real AI agent trial
 
-The repository now contains a reproducible low-risk trial harness:
+The repository contains a reproducible low-risk real-agent trial harness:
 
 ```bash
-python examples/real_agent_trial.py
+python examples/run_gemini_forgeos_trial.py --prepare-only
 ```
 
-It demonstrates:
+The current MCP bridge exposes seven deliberately narrow tools:
 
-- workspace write → **ALLOW**
-- assigned feature branch → **ALLOW**
-- `main` branch escape → **DENY**
-- unrelated repository → **DENY**
-- sensitive access → **ASK**
-- human approval → governed execution
-- append-only evidence verification
+- `read_file`
+- `forgeos_write_file`
+- `run_test`
+- `git_status`
+- `git_commit`
+- `git_push`
+- `request_action`
 
-The trial uses a disposable local workspace and simulated Git/secrets adapters. **It does not use production credentials or claim production readiness.**
+The demonstrated Gemini milestone proves the write path. Additional real-agent proofs for test execution, Git commit/push, and human approval are the next validation targets.
 
-Next step: put a real coding agent in front of this control plane using a disposable repository and measure task completion, denied actions, approval friction, scope-escape attempts, latency, and evidence completeness.
+The trial uses a disposable local workspace and controlled local adapters. **It does not use production credentials or claim production readiness.**
 
-Read: [Real AI agent quickstart](docs/REAL_AGENT_QUICKSTART.md)
+Read: [Real-Agent MCP boundary](docs/REAL_AGENT_MCP.md) · [Real Gemini MCP milestone](docs/MILESTONE_REAL_GEMINI_MCP.md)
 
 ## Security evidence
 
-The current hardened development track has been exercised with:
+The current development track has been exercised with:
 
-- **115 passed, 7 skipped** in the Python regression suite
-- **7 passed** in the opt-in Docker isolation suite
+- **159 passed** in the full Python regression suite following the real Gemini MCP implementation work
 - scoped multi-agent tests showing feature-branch allow, main-branch denial, and repository escape denial
-- focused execution-boundary regression tests covering direct executor bypass and scoped approval routing
+- focused execution-boundary tests covering executor binding and scoped approval routing
+- a real external Gemini execution that crossed the MCP boundary and completed a governed filesystem write
+- committed evidence containing authorization, execution, request digest, execution binding, result, and evidence-chain digest
 
-See [Evidence and current status](docs/EVIDENCE.md).
+See [Evidence and current status](docs/EVIDENCE.md) and [Real Gemini MCP milestone](docs/MILESTONE_REAL_GEMINI_MCP.md).
 
-These are prototype test results, not a security certification or claim of production readiness.
+These are prototype test and trial results, not a security certification or claim of production readiness.
 
 ## Provider-neutral by design
 
@@ -168,7 +211,13 @@ Run the scoped multi-agent demo:
 python examples/scoped_multi_agent_demo.py
 ```
 
-Run the real-agent trial:
+Prepare the real Gemini MCP trial:
+
+```bash
+python examples/run_gemini_forgeos_trial.py --prepare-only
+```
+
+Run the original control-plane trial:
 
 ```bash
 python examples/real_agent_trial.py
@@ -225,8 +274,13 @@ See [the ForgeOS roadmap](docs/ROADMAP.md).
 - `controlplane/` — authorization, policy, evidence, gateway, and execution primitives
 - `tests/` — regression and adversarial tests
 - `examples/` — safe demonstrations and the real-agent trial harness
-- `docs/` — product, security, architecture, quickstarts, evidence, and roadmap
+- `docs/` — product, security, architecture, quickstarts, evidence, milestones, and roadmap
+- `evidence/` — selected committed proof records from validated milestones
 - `docs/superpowers/` — approved specifications and implementation plans
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for milestone history and [the real Gemini milestone](docs/MILESTONE_REAL_GEMINI_MCP.md) for the current detailed validation record.
 
 ## Contributing and security
 
