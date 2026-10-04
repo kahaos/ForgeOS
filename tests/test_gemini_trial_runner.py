@@ -24,14 +24,14 @@ def test_gemini_settings_allow_only_forgeos_mcp(tmp_path: Path) -> None:
     assert settings["mcpServers"]["forgeos"]["trust"] is False
     assert settings["mcpServers"]["forgeos"]["includeTools"] == [
         "read_file",
-        "write_file",
+        "forgeos_write_file",
         "run_test",
         "git_status",
         "git_commit",
         "git_push",
         "request_action",
     ]
-    assert settings["tools"]["core"] == []
+    assert "tools" not in settings or "core" not in settings["tools"]
     assert settings["security"]["disableYoloMode"] is True
 
 

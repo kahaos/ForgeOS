@@ -20,7 +20,7 @@ class ForgeOSMCPServer:
     TOOL_NAMES = frozenset(
         {
             "read_file",
-            "write_file",
+            "forgeos_write_file",
             "run_test",
             "git_status",
             "git_commit",
@@ -34,9 +34,9 @@ class ForgeOSMCPServer:
             "description": "Read a file through ForgeOS policy.",
             "inputSchema": {"type": "object", "properties": {"workspace": {"type": "string"}, "path": {"type": "string"}}, "required": ["workspace", "path"]},
         },
-        "write_file": {
+        "forgeos_write_file": {
             "description": "Write a file through ForgeOS policy.",
-            "inputSchema": {"type": "object", "properties": {"workspace": {"type": "string"}, "name": {"type": "string"}, "content": {"type": "string"}}, "required": ["workspace", "name", "content"]},
+            "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "content": {"type": "string"}}, "required": ["name", "content"]},
         },
         "run_test": {
             "description": "Run a governed test operation in a workspace.",
@@ -60,12 +60,13 @@ class ForgeOSMCPServer:
         },
     }
 
-    def __init__(self, gateway: RuntimeGateway, task_id: str, agent_id: str) -> None:
+    def __init__(self, gateway: RuntimeGateway, task_id: str, agent_id: str, workspace: str | None = None) -> None:
         if not task_id or not agent_id:
             raise ValueError("task_id and agent_id are required")
         self.gateway = gateway
         self.task_id = task_id
         self.agent_id = agent_id
+        self.workspace = workspace
 
     def list_tools(self) -> set[str]:
         """Return the fixed, intentionally narrow agent-facing tool surface."""
@@ -112,8 +113,20 @@ class ForgeOSMCPServer:
     def _tool_read_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._request(arguments, tool="filesystem", action="read", target_key="workspace", executor_id="filesystem:read", required=("workspace", "path"))
 
-    def _tool_write_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        return self._request(arguments, tool="filesystem", action="write", target_key="workspace", executor_id="filesystem:write", required=("workspace", "name", "content"))
+    def _tool_forgeos_write_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        bound = dict(arguments)
+        if self.workspace:
+            bound["workspace"] = self.workspace
+        elif "workspace" not in bound:
+            raise ValueError("workspace is required for forgeos_write_file")
+        return self._request(
+            bound,
+            tool="filesystem",
+            action="write",
+            target_key="workspace",
+            executor_id="filesystem:write",
+            required=("workspace", "name", "content"),
+        )
 
     def _tool_run_test(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._request(arguments, tool="test", action="run", target_key="workspace", executor_id="test:run", required=("workspace",))

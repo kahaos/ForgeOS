@@ -164,7 +164,7 @@ def test_real_mcp_launcher_exposes_only_fixed_tools_and_executes_governed_write(
         names = {tool["name"] for tool in tools["result"]["tools"]}
         assert names == {
             "read_file",
-            "write_file",
+            "forgeos_write_file",
             "run_test",
             "git_status",
             "git_commit",
@@ -173,6 +173,13 @@ def test_real_mcp_launcher_exposes_only_fixed_tools_and_executes_governed_write(
         }
         assert "shell" not in names
 
+        write_schema = next(
+            tool for tool in tools["result"]["tools"]
+            if tool["name"] == "forgeos_write_file"
+        )
+        assert write_schema["inputSchema"]["required"] == ["name", "content"]
+        assert "workspace" not in write_schema["inputSchema"]["properties"]
+
         write = _rpc(
             process,
             {
@@ -180,9 +187,8 @@ def test_real_mcp_launcher_exposes_only_fixed_tools_and_executes_governed_write(
                 "id": 3,
                 "method": "tools/call",
                 "params": {
-                    "name": "write_file",
+                    "name": "forgeos_write_file",
                     "arguments": {
-                        "workspace": str(workspace),
                         "name": "index.html",
                         "content": "<h1>ForgeOS</h1>\n",
                     },

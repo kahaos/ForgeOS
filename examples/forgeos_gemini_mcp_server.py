@@ -150,7 +150,7 @@ def main() -> None:
         raise SystemExit("only the fixed disposable trial task and agent are supported")
 
     runtime = build_trial_runtime(Path(args.workspace).parent, workspace=args.workspace, state_dir=args.state_dir)
-    server = ForgeOSMCPServer(runtime["gateway"], runtime["task_id"], runtime["agent_id"])
+    server = ForgeOSMCPServer(runtime["gateway"], runtime["task_id"], runtime["agent_id"], str(args.workspace))
     MCPStdioServer(server).serve()
 
 

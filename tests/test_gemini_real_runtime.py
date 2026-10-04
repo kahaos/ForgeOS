@@ -28,7 +28,7 @@ def test_write_gemini_settings_creates_only_forgeos_mcp(tmp_path: Path) -> None:
     assert settings["mcp"]["allowed"] == ["forgeos"]
     assert server["includeTools"] == [
         "read_file",
-        "write_file",
+        "forgeos_write_file",
         "run_test",
         "git_status",
         "git_commit",
@@ -49,7 +49,7 @@ def test_write_gemini_settings_creates_only_forgeos_mcp(tmp_path: Path) -> None:
         "--agent-id",
         "website-agent",
     ]
-    assert settings["tools"]["core"] == []
+    assert "tools" not in settings or "core" not in settings["tools"]
     assert settings["security"]["disableYoloMode"] is True
     assert settings["security"]["disableAlwaysAllow"] is True
 
@@ -79,7 +79,7 @@ def test_trial_prompt_requires_governed_website_workflow(tmp_path: Path) -> None
 
     assert "website" in lowered
     assert "forgeos" in lowered
-    assert "write_file" in lowered
+    assert "forgeos_write_file" in lowered
     assert "git_commit" in lowered
     assert "git_push" in lowered
     assert "feature" in lowered

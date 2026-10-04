@@ -16,7 +16,7 @@ def test_stdio_lists_only_governed_tools(tmp_path: Path) -> None:
     names = {tool["name"] for tool in response["result"]["tools"]}
     assert names == {
         "read_file",
-        "write_file",
+        "forgeos_write_file",
         "run_test",
         "git_status",
         "git_commit",

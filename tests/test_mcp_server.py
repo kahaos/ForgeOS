@@ -14,7 +14,7 @@ def test_mcp_exposes_only_governed_tools(tmp_path: Path) -> None:
 
     assert server.list_tools() == {
         "read_file",
-        "write_file",
+        "forgeos_write_file",
         "run_test",
         "git_status",
         "git_commit",
@@ -30,7 +30,7 @@ def test_mcp_write_is_governed_by_task_scope(tmp_path: Path) -> None:
     server = ForgeOSMCPServer(gateway, "real-agent-website-build", "website-agent")
 
     result = server.call_tool(
-        "write_file",
+        "forgeos_write_file",
         {"workspace": str(tmp_path), "name": "site.txt", "content": "hello"},
     )
 
