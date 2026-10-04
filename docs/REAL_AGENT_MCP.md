@@ -19,21 +19,47 @@ RuntimeGateway
       +-- DENY  -> no executor invocation
 ```
 
-The bridge must not expose a generic host shell. Tool calls must resolve to explicit ForgeOS capabilities and task-scoped grants.
+The bridge must not expose a generic host shell. Tool calls resolve to explicit ForgeOS capabilities and task-scoped grants.
 
-## Initial tool surface
+## Current tool surface
+
+The real-agent MCP bridge currently exposes seven governed tools:
 
 - `read_file`
-- `write_file`
+- `forgeos_write_file`
 - `run_test`
 - `git_status`
 - `git_commit`
 - `git_push`
 - `request_action`
 
-The Gemini CLI trial is configured with only the ForgeOS MCP server and this explicit tool allowlist. Gemini's MCP configuration supports both server allowlists and per-server `includeTools`, so the client-side surface is also narrowed before the model can call tools. urlGemini CLI MCP server configurationhttps://geminicli.com/docs/tools/mcp-server/
+The write operation deliberately uses the `forgeos_write_file` name rather than the generic `write_file` name. During Gemini integration testing, the generic name collided with Gemini CLI's built-in tooling. Renaming the MCP-facing tool made the ForgeOS operation unambiguous without changing the underlying ForgeOS action.
 
-The first trial uses a disposable workspace and local bare Git repository. The agent is not given production credentials, arbitrary secrets, Docker access, or unrestricted network access.
+The Gemini CLI trial is configured with only the ForgeOS MCP server and an explicit per-server tool allowlist. The MCP bridge therefore remains narrow before a model can invoke an operation.
+
+The first trial uses a disposable workspace and local bare Git repository. The agent is not given production credentials, arbitrary secrets, Docker access, or unrestricted shell access.
+
+## Successful Gemini milestone
+
+On 2026-10-04, Gemini 3.7 Flash successfully invoked `forgeos_write_file` through this boundary and created `site/index.html` inside the ForgeOS-bound disposable workspace.
+
+The successful execution path was:
+
+```text
+Gemini
+  -> forgeos_write_file
+  -> MCP server
+  -> RuntimeGateway
+  -> scoped authority
+  -> ExecutionWorker
+  -> filesystem:write
+  -> bound workspace
+  -> evidence
+```
+
+The operation was authorized under agent `website-agent`, task `real-agent-website-build`, with `FS_WRITE` capability and policy `controlplane-1.0`.
+
+See [Real Gemini MCP Milestone](MILESTONE_REAL_GEMINI_MCP.md) and the committed evidence record at `evidence/gemini-write-success/2026-10-04-live-run.txt`.
 
 ## Security invariants
 
@@ -48,10 +74,28 @@ The first trial uses a disposable workspace and local bare Git repository. The a
 9. The local test executor accepts no agent-supplied shell command; it invokes one fixed test command with an argument vector.
 10. File operations are resolved against the pre-bound workspace and reject traversal outside that workspace.
 
-## First trial
+## Workspace binding
 
-The target task is a small website build in a disposable repository. The agent may modify the trial workspace, commit changes, and push a `feature/*` branch. Attempts to push `main` or `master`, access another repository, read ungranted secrets, or deploy production are expected to be denied according to the first trial's scoped grants. A separately scoped consequential capability can later demonstrate the ASK → human approval → signed execution path.
+For the governed write operation, the MCP server binds the workspace from the trusted trial runtime. The external agent supplies a relative file name and content rather than choosing the execution workspace itself.
 
-The local adapters deliberately use argument vectors rather than shell command strings for subprocess execution; Python's subprocess documentation notes that `shell=False` avoids implicitly invoking a system shell. citeturn1search0
+This keeps resource selection inside the authority already established for the task and prevents an agent from redirecting the executor to an unrelated workspace.
 
-See [Real Agent Trial](REAL_AGENT_TRIAL.md) for the staged validation procedure and [AI Agent Authorization](AI_AGENT_AUTHORIZATION.md) for the broader authorization model.
+## Executor boundary
+
+The MCP bridge is not itself the final executor. It routes requests through the RuntimeGateway and ExecutionWorker. Executor identifiers such as `filesystem:write`, `filesystem:read`, `test:run`, `git:status`, `git:commit`, and `git:push` are bound by the runtime.
+
+Executable adapter callables are process-local. Persisted executor metadata records the identity and target binding so restart behaviour cannot silently recreate an executable authority that was never explicitly registered by the current process.
+
+## Trial scope
+
+The target task is a small website build in a disposable repository. The agent may modify the trial workspace, commit changes, and push a `feature/*` branch when its scoped authority permits those operations. Attempts to push a protected branch, access another repository, read ungranted sensitive material, or perform an unrelated operation are expected to be denied or routed to approval according to the active grants and policy.
+
+The local adapters deliberately use argument vectors rather than shell command strings for subprocess execution. The local test executor also uses a fixed test command rather than accepting arbitrary commands from the agent.
+
+## What the current milestone does not prove
+
+The successful Gemini write is a controlled low-risk milestone. It does not claim unrestricted shell execution, production GitHub access, production secret retrieval, production deployment, enterprise identity integration, or production readiness.
+
+The next validation targets are real-agent test execution, Git commit/push, human approval, and additional adversarial runtime tests.
+
+See [Real Agent Trial](REAL_AGENT_TRIAL.md) for the staged validation procedure, [Real Gemini MCP Milestone](MILESTONE_REAL_GEMINI_MCP.md) for the detailed evidence, and [AI Agent Authorization](AI_AGENT_AUTHORIZATION.md) for the broader authorization model.
