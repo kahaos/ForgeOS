@@ -33,6 +33,16 @@ TRIAL_AGENT_ID = "website-agent"
 DEFAULT_TRIAL_ROOT = Path("/opt/forgeos/gemini-controlplane-trial")
 DEFAULT_GEMINI_MODEL = "gemini-3.1-pro-preview"
 
+NATIVE_BYPASS_TOOLS = (
+    "run_shell_command",
+    "write_file",
+    "replace",
+    "read_file",
+    "list_directory",
+    "glob",
+)
+
+
 # Provider credentials must not be inherited from the operator shell unless
 # the operator explicitly selects an authentication mode for this trial.
 PROVIDER_CREDENTIAL_ENV_VARS = {
