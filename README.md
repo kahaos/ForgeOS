@@ -1,18 +1,63 @@
-# ForgeOS — AI Agent Control Plane
+# ForgeOS
 
-**Let AI agents act autonomously without giving them unrestricted authority.**
-
-ForgeOS is an open-source **AI agent control plane** for authorization, human approval, governed execution, and evidence. It sits between autonomous AI agents and the tools, systems, data, accounts, and real-world actions they are allowed to touch.
-
+> **The runtime authority layer for autonomous AI agents.**
+>
 > **Agent autonomy should not mean unrestricted authority.**
 
-[Why ForgeOS?](docs/WHY_FORGEOS.md) · [Try the real-agent trial](docs/REAL_AGENT_QUICKSTART.md) · [Read the security model](docs/SECURITY_MODEL.md) · [Explore the architecture](docs/FORGEOS_ARCHITECTURE.md) · [Read the Gemini milestone](docs/MILESTONE_REAL_GEMINI_MCP.md) · [See the roadmap](docs/ROADMAP.md)
+ForgeOS is an open-source control plane that sits between AI agents and the systems they can affect. It evaluates **identity, capability, task scope, risk, policy, human approval, execution, and evidence** before consequential actions are allowed to run.
 
-## 🚀 Real Gemini MCP milestone — SUCCESS
+**The model is not the authority. ForgeOS is.**
 
-On **2026-10-04**, ForgeOS successfully executed a real external **Gemini 3.7 Flash** agent action through the ForgeOS MCP boundary.
+[Why ForgeOS](docs/WHY_FORGEOS.md) · [Project Guide](docs/PROJECT_GUIDE.md) · [Architecture](docs/FORGEOS_ARCHITECTURE.md) · [Security](docs/SECURITY_MODEL.md) · [Roadmap](docs/ROADMAP.md)
 
-The demonstrated path was:
+---
+
+## Why ForgeOS?
+
+AI agents can now write code, modify files, call APIs, operate infrastructure, and coordinate with other agents. Authentication tells you **who** an agent is. Credentials tell you **what access** it has.
+
+ForgeOS is designed to answer the runtime question:
+
+> **Is this agent allowed to perform this exact action, against this exact resource, for this exact task, right now?**
+
+Instead of giving an agent broad standing authority, ForgeOS can issue narrow, task-scoped authority and route every governed request through an explicit decision:
+
+```text
+                     AI AGENT
+                         │
+                         ▼
+              ┌─────────────────────┐
+              │       ForgeOS       │
+              │                     │
+              │ Identity            │
+              │ Capability          │
+              │ Task + Scope        │
+              │ Risk                │
+              │ Policy              │
+              └──────────┬──────────┘
+                         │
+                  ALLOW / ASK / DENY
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+       Human approval          Evidence
+              │                     │
+              └──────────┬──────────┘
+                         ▼
+              Governed Execution
+                         │
+        ┌────────────────┼────────────────┐
+        ▼                ▼                ▼
+      GitHub           Cloud           Systems
+```
+
+ForgeOS is **not another AI agent** and does not replace provider-native authorization, GitHub permissions, cloud IAM, OAuth, MCP security, or application credentials. It provides a common runtime authority boundary across them.
+
+---
+
+## 🚀 Verified: real Gemini agent execution
+
+**2026-10-04 — real Gemini 3.7 Flash successfully crossed the ForgeOS MCP boundary and completed a governed filesystem write.**
 
 ```text
 Gemini 3.7 Flash
@@ -40,59 +85,21 @@ site/index.html
 evidence ledger
 ```
 
-The agent was `website-agent`, operating under task `real-agent-website-build` with `FS_WRITE` authority. It created the requested `site/index.html` with exactly 55 bytes. The resulting file hash, request digest, execution binding, and evidence digest were recorded in the committed evidence record.
+The agent `website-agent` operated under task `real-agent-website-build` with `FS_WRITE` authority and created `site/index.html` with exactly **55 bytes**. The file hash, request digest, execution binding, and evidence digest were recorded in the committed evidence record.
 
 **159 tests passed** in the full ForgeOS regression suite after the implementation work.
 
-Read the full technical report: [Real Gemini MCP milestone](docs/MILESTONE_REAL_GEMINI_MCP.md)  
-Read the committed run record: [Gemini write evidence](evidence/gemini-write-success/2026-10-04-live-run.txt)  
-See the project history: [CHANGELOG](CHANGELOG.md)
+**Important:** this is a controlled, low-risk disposable trial. It is evidence of a working governed execution path, **not** a claim of production readiness or security certification.
 
-> This is a controlled, low-risk disposable trial. It is evidence of a working governed execution path, not a claim of production readiness or security certification.
+→ [Read the full Gemini milestone](docs/MILESTONE_REAL_GEMINI_MCP.md)  
+→ [Inspect the committed evidence](evidence/gemini-write-success/2026-10-04-live-run.txt)  
+→ [See the engineering changelog](CHANGELOG.md)
 
-## Why ForgeOS?
+---
 
-AI agents are increasingly capable of coding, researching, operating systems, managing content, calling APIs, and coordinating with other agents. Authentication alone does not answer the runtime question:
+## The ForgeOS security model
 
-> **Is this agent allowed to perform this exact action, against this exact resource, for this task, right now?**
-
-ForgeOS is designed to answer that question with explicit, task-scoped authority.
-
-It is aimed at developers, security engineers, platform teams, AI infrastructure builders, and researchers working on **AI agent security, agent authorization, agent identity, least privilege, multi-agent security, runtime governance, and secure autonomous execution**.
-
-## The core model
-
-```text
-AI Agent
-   │
-   ▼
-ForgeOS Control Plane
-   ├─ Identity
-   ├─ Capability
-   ├─ Task
-   ├─ Scope
-   ├─ Risk
-   └─ Policy
-   │
-   ▼
-ALLOW / ASK / DENY
-   │
-   ├── Evidence
-   ├── Human approval when required
-   └── Short-lived execution authorization
-               │
-               ▼
-       ForgeOS Execution Worker
-               │
-               ▼
-        Provider / Executor
-```
-
-The control plane remains authoritative. The execution worker does not create a second permission system.
-
-## Task-scoped AI agent authorization
-
-A ForgeOS grant can be narrow enough to describe one task and one resource boundary:
+A ForgeOS authority grant can be narrower than a conventional credential:
 
 ```text
 Agent:       website-agent
@@ -103,11 +110,38 @@ Branch:      feature/*
 Expiry:      task expiry
 ```
 
-That means an agent can work autonomously on its assigned feature branch while a different repository or production branch falls outside its authority.
+The agent can autonomously work inside that boundary while a different repository, production branch, capability, or expired task falls outside its authority.
 
-### Multi-agent security
+### ALLOW / ASK / DENY
 
-Agents remain separate principals even when they cooperate on one task:
+| Decision | Meaning |
+|---|---|
+| **ALLOW** | The exact request matches active authority and policy and may enter governed execution. |
+| **ASK** | The operation may be permitted, but an authorized human decision is required first. |
+| **DENY** | No applicable authority exists or policy prohibits the operation. The request must not reach an executor. |
+
+### 12-gate governed execution
+
+1. **Identity** — identify the requesting principal
+2. **Capability** — determine what operation is requested
+3. **Risk** — evaluate operation risk
+4. **Policy** — decide ALLOW, ASK, or DENY
+5. **Evidence** — record request and context
+6. **Verdict** — record authorization decision
+7. **Human Approval** — approve consequential requests when required
+8. **Release** — release the exact approved operation
+9. **Preflight** — validate execution prerequisites
+10. **Execute** — run through the governed worker
+11. **Verify** — check the result
+12. **Rollback** — recover when required
+
+See [the security model](docs/SECURITY_MODEL.md) and [AI agent authorization](docs/AI_AGENT_AUTHORIZATION.md).
+
+---
+
+## Multi-agent authority
+
+ForgeOS treats agents as separate principals even when they cooperate:
 
 ```text
 Build Website
@@ -121,78 +155,131 @@ Build Website
 
 Delegation is explicit and attenuating: a child grant cannot widen the parent's capability, resource scope, or expiry.
 
-Read more: [AI agent authorization](docs/AI_AGENT_AUTHORIZATION.md) · [Multi-agent security](docs/MULTI_AGENT_SECURITY.md)
+→ [Multi-agent security](docs/MULTI_AGENT_SECURITY.md)
 
-## ALLOW, ASK, DENY
-
-**ALLOW** — the operation matches active task-scoped authority and policy and can enter the governed execution path.
-
-**ASK** — the operation is potentially permitted but requires an authorized human decision before execution.
-
-**DENY** — no applicable authority exists or policy prohibits the operation. A denied request must not reach an executor.
-
-## The 12-Gate Governed Execution Model
-
-ForgeOS separates authorization from execution lifecycle governance.
-
-| Gate | Purpose |
-|---|---|
-| 1. Identity | Identify the requesting principal |
-| 2. Capability | Determine the requested capability |
-| 3. Risk | Evaluate operation risk |
-| 4. Policy | Decide allow, ask, or deny |
-| 5. Evidence | Record the operation and context |
-| 6. Verdict | Record the authorization decision |
-| 7. Human Approval | Approve consequential requests when required |
-| 8. Release | Release the exact approved operation |
-| 9. Preflight | Validate execution prerequisites |
-| 10. Execute | Run through the governed worker |
-| 11. Verify | Check the execution result |
-| 12. Rollback | Recover when required |
-
-## Real AI agent trial
-
-The repository contains a reproducible low-risk real-agent trial harness:
-
-```bash
-python examples/run_gemini_forgeos_trial.py --prepare-only
-```
-
-The current MCP bridge exposes seven deliberately narrow tools:
-
-- `read_file`
-- `forgeos_write_file`
-- `run_test`
-- `git_status`
-- `git_commit`
-- `git_push`
-- `request_action`
-
-The demonstrated Gemini milestone proves the write path. Additional real-agent proofs for test execution, Git commit/push, and human approval are the next validation targets.
-
-The trial uses a disposable local workspace and controlled local adapters. **It does not use production credentials or claim production readiness.**
-
-Read: [Real-Agent MCP boundary](docs/REAL_AGENT_MCP.md) · [Real Gemini MCP milestone](docs/MILESTONE_REAL_GEMINI_MCP.md)
-
-## Security evidence
-
-The current development track has been exercised with:
-
-- **159 passed** in the full Python regression suite following the real Gemini MCP implementation work
-- scoped multi-agent tests showing feature-branch allow, main-branch denial, and repository escape denial
-- focused execution-boundary tests covering executor binding and scoped approval routing
-- a real external Gemini execution that crossed the MCP boundary and completed a governed filesystem write
-- committed evidence containing authorization, execution, request digest, execution binding, result, and evidence-chain digest
-
-See [Evidence and current status](docs/EVIDENCE.md) and [Real Gemini MCP milestone](docs/MILESTONE_REAL_GEMINI_MCP.md).
-
-These are prototype test and trial results, not a security certification or claim of production readiness.
+---
 
 ## Provider-neutral by design
 
-ForgeOS does not aim to replace provider-native authorization. GitHub, cloud IAM, OAuth, MCP, and provider credentials remain important controls.
+ForgeOS is being designed so the underlying model/provider can change without changing the authority model.
 
-ForgeOS adds a common runtime authority layer that can evaluate task context, scope, risk, approval, and evidence across different agents and tools.
+| Agent/provider | Current status |
+|---|---|
+| **Gemini** | ✅ Real MCP execution verified |
+| **Anthropic / Claude** | 🟡 Planned |
+| **OpenAI / ChatGPT** | 🟡 Planned |
+| **xAI / Grok** | 🟡 Planned |
+| **OpenAI-compatible / local models** | 🟡 Planned |
+
+The target architecture is:
+
+```text
+Gemini ───────┐
+Claude ───────┤
+OpenAI ───────┤
+Grok ─────────┤──→ Common ForgeOS runtime interface
+Local models ─┘                 │
+                                ▼
+                        ForgeOS Authority
+                                │
+                ┌───────────────┼───────────────┐
+                ▼               ▼               ▼
+             GitHub           Cloud          Systems
+```
+
+Provider adapters should remain thin. ForgeOS owns task context, scope, policy, approval, execution authority, and evidence.
+
+→ [Provider roadmap](docs/ROADMAP.md)
+
+---
+
+## Application integrations
+
+The next major validation target is **GitHub**, because coding agents need to perform exactly the kinds of operations where runtime authority matters.
+
+| Integration | Status | Planned governed actions |
+|---|---|---|
+| Filesystem | ✅ Verified | Read/write through governed worker |
+| MCP boundary | ✅ Verified | Tool requests through ForgeOS |
+| GitHub | 🟡 Next | Repos, branches, commits, PRs, push, CI, merge, release |
+| Cloud | 🟡 Planned | Infrastructure and deployment actions |
+| Secrets | 🟡 Planned | Scoped secret access |
+| Slack / Teams | 🟡 Planned | Governed communication/actions |
+| CI/CD | 🟡 Planned | Build, release and deployment gates |
+
+High-impact operations should be able to trigger **ALLOW / ASK / DENY** and exact human approval while producing evidence of the decision and result.
+
+→ [See the full roadmap](docs/ROADMAP.md)
+
+---
+
+## Task Ledger & human-readable reports
+
+A major product direction is to make machine activity understandable to humans.
+
+Every meaningful governed task should eventually receive a persistent ForgeOS task ID such as:
+
+```text
+FOS-2026-10-04-8A42C1
+```
+
+A task record will connect the request, agent/provider, actions, policy decisions, approvals, tools, files, Git commits, tests, errors, results, and evidence.
+
+A non-technical user should be able to receive a report like:
+
+```text
+ForgeOS Task: FOS-2026-10-04-8A42C1
+Agent:         Gemini
+Task:          Build business website
+Started:       18:42
+Completed:     19:07
+Duration:      25 minutes
+Status:        COMPLETED
+
+Changes:
+  20 files changed
+  4 commits
+
+Verification:
+  Tests: PASSED
+  Pull request: CREATED
+
+Evidence:
+  Approvals: 2 requested / 2 approved
+  Git SHA: a81f3c7...
+```
+
+The **Task Ledger** remains the source of truth; email, dashboard, Slack, webhooks and other notification channels can become delivery layers over it.
+
+→ [Task Reports & Notifications roadmap](docs/ROADMAP.md)
+
+---
+
+## What is actually verified today?
+
+The current development track has evidence for:
+
+- task-scoped capability grants
+- resource and branch scoping
+- multi-agent authority separation
+- attenuating delegation
+- ALLOW / ASK / DENY decisions
+- exact-request human approval
+- signed execution authorizations
+- single-use execution nonces
+- replay/tamper/state-drift protections
+- Docker-backed isolated worker tests
+- provider-neutral Runtime Gateway
+- a real external Gemini MCP execution through the governed ForgeOS boundary
+- committed authorization, execution and evidence records
+- **159 passing tests** after the Gemini milestone
+
+These are prototype validation results, not a security certification.
+
+→ [Evidence and current status](docs/EVIDENCE.md)  
+→ [Real-agent MCP boundary](docs/REAL_AGENT_MCP.md)
+
+---
 
 ## Quick start
 
@@ -229,27 +316,26 @@ Run the Docker isolation demo when Docker is intentionally available:
 python examples/isolated_worker_demo.py
 ```
 
-## Architecture
+For a guided tour, start with [Project Guide](docs/PROJECT_GUIDE.md).
 
-The core separation is:
+---
+
+## Repository map
 
 ```text
-Agent
-  ↓
-ForgeOS Control Plane
-  ↓
-Runtime Gateway
-  ↓
-Bound Execution Authorization
-  ↓
-Execution Worker
-  ↓
-Provider / Executor
-  ↓
-Evidence
+ForgeOS/
+├── controlplane/   Core authorization, policy, evidence, gateway and execution primitives
+├── examples/       Safe demos and real-agent trial harnesses
+├── tests/          Regression and adversarial tests
+├── docs/           Architecture, security, guides, milestones and roadmap
+├── evidence/       Selected committed proof records
+├── .github/        CI and community issue templates
+└── README.md       Project entry point
 ```
 
-See [ForgeOS architecture](docs/FORGEOS_ARCHITECTURE.md) for the detailed model.
+The repository also contains historical patch plans and earlier engineering artifacts. They are intentionally preserved while the project evolves; this presentation pass does not remove historical material.
+
+---
 
 ## Current limitations
 
@@ -263,30 +349,67 @@ ForgeOS is a developing open-source prototype. Production use requires additiona
 - production Git/GitHub and cloud adapters
 - deployment controls and operational monitoring
 
-The current API uses a server-bound operator principal rather than a complete enterprise identity provider integration.
+The current API uses a server-bound operator principal rather than a complete enterprise identity-provider integration.
+
+**Do not treat the current trial as a production deployment or security certification.**
+
+---
 
 ## Roadmap
 
-See [the ForgeOS roadmap](docs/ROADMAP.md).
+### Foundation — current
 
-## Repository guide
+- [x] Scoped authority
+- [x] Policy and ALLOW / ASK / DENY
+- [x] Human approval path
+- [x] Governed execution worker
+- [x] Evidence ledger
+- [x] Real Gemini MCP execution
 
-- `controlplane/` — authorization, policy, evidence, gateway, and execution primitives
-- `tests/` — regression and adversarial tests
-- `examples/` — safe demonstrations and the real-agent trial harness
-- `docs/` — product, security, architecture, quickstarts, evidence, milestones, and roadmap
-- `evidence/` — selected committed proof records from validated milestones
-- `docs/superpowers/` — approved specifications and implementation plans
+### Next
 
-## Changelog
+- [ ] Claude / Anthropic adapter
+- [ ] OpenAI adapter
+- [ ] Grok adapter
+- [ ] GitHub governed integration
+- [ ] Task Ledger
+- [ ] Human-readable task reports
+- [ ] Completion / approval / denial notifications
 
-See [CHANGELOG.md](CHANGELOG.md) for milestone history and [the real Gemini milestone](docs/MILESTONE_REAL_GEMINI_MCP.md) for the current detailed validation record.
+### Platform
 
-## Contributing and security
+- [ ] Cloud integrations
+- [ ] Secret isolation and controlled access
+- [ ] CI/CD and deployment gates
+- [ ] Slack / Teams / Jira / Notion integrations
+- [ ] Live control console
+- [ ] Evidence search and audit workflows
+- [ ] Multi-agent orchestration
+- [ ] Policy administration and protected policy changes
 
-- [Contributing](CONTRIBUTING.md)
-- [Security policy](SECURITY.md)
-- [Code of Conduct](CODE_OF_CONDUCT.md)
+→ [Full roadmap](docs/ROADMAP.md)
+
+---
+
+## For contributors
+
+ForgeOS welcomes people interested in:
+
+- AI agent security
+- agent authorization and identity
+- least privilege
+- MCP security
+- policy engines
+- secure autonomous execution
+- AI governance
+- provider adapters
+- enterprise integrations
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Project Guide](docs/PROJECT_GUIDE.md).
+
+For security issues, see [SECURITY.md](SECURITY.md).
+
+---
 
 ## License
 
