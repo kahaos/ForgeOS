@@ -1,0 +1,92 @@
+ForgeOS Live Gemini MCP Write Evidence
+======================================
+
+Date:
+2026-10-04
+
+Result:
+SUCCESS
+
+External agent:
+Gemini 3.7 Flash
+
+Agent ID:
+website-agent
+
+Task ID:
+real-agent-website-build
+
+MCP server:
+forgeos-control-plane
+
+MCP tool:
+forgeos_write_file
+
+Model-facing MCP tool:
+mcp_forgeos_forgeos_write_file
+
+Requested operation:
+Create site/index.html
+
+Exact content:
+<html><body><h1>ForgeOS Gemini Trial</h1></body></html>
+
+ForgeOS operation:
+tool=filesystem
+action=write
+
+Executor:
+filesystem:write
+
+Capability:
+FS_WRITE
+
+Workspace:
+The disposable trial workspace bound to the ForgeOS task.
+
+Policy:
+controlplane-1.0
+
+Approval:
+auto_82ff9989b314
+
+Request digest:
+0885e2d0e3dbb3422bf48ac6db9114e59ce5760ae1ec0b3f4189132f2b37cd3f
+
+Evidence digest:
+dcf9bf9d06bad6a0159dde9c6bfcc1666e12c939308f58b9197d415d2f5622ac
+
+Execution binding:
+exec_d63b76b3bfc8
+
+Execution result:
+status=completed
+bytes=55
+path=site/index.html
+
+File SHA-256:
+d30af4af6f7d9c91cd87c6386faecf5acf6dc3a30e34ee2b025853f2f17d0c36
+
+Observed Gemini result:
+"site/index.html has been created with the exact content requested via the ForgeOS MCP server tool."
+
+Automated verification:
+159 tests passed.
+
+Security properties demonstrated:
+- External Gemini agent used the ForgeOS MCP interface.
+- ForgeOS remained the execution authority.
+- Workspace was bound by the ForgeOS runtime.
+- FS_WRITE capability was required.
+- Execution occurred through filesystem:write.
+- Authorization and execution were recorded in the evidence ledger.
+- Agent was not given shell execution.
+- Provider credentials were not exposed to the MCP server.
+- The write tool was renamed forgeos_write_file to avoid collision with Gemini's built-in write_file tool.
+- The resulting file was created inside the governed disposable workspace.
+
+Limitations:
+- This is a controlled disposable trial.
+- The filesystem executor is workspace-bound.
+- The trial does not grant unrestricted shell execution.
+- Git push and secret retrieval remain governed capabilities and are not demonstrated by this write event.
