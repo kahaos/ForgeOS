@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If ForgeOS contributes to your research or software, please cite the repository."
+title: "ForgeOS: AI Agent Control Plane"
+type: software
+license: Apache-2.0
+repository-code: "https://github.com/kahaos/ForgeOS"
+authors:
+  - family-names: "Kahaos"
+    given-names: "ForgeOS"

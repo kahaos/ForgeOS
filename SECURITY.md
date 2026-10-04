@@ -1,21 +1,23 @@
 # Security Policy
 
-## Supported Versions
+## Scope
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+ForgeOS is an evolving AI agent authorization and governed-execution prototype. Security reports about authorization bypasses, scope escapes, replay, tampering, identity confusion, execution-boundary bypasses, or secret exposure are especially valuable.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+## Reporting a vulnerability
 
-## Reporting a Vulnerability
+Please do not disclose an unpatched security vulnerability publicly in an issue. Use GitHub's private security reporting mechanism for this repository when available.
 
-Use this section to tell people how to report a vulnerability.
+Include:
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+- affected commit or version
+- concise reproduction steps
+- expected versus actual authorization behaviour
+- whether an executor was reached
+- relevant logs or evidence identifiers with secrets removed
+
+Never include API keys, passwords, private tokens, or other credentials in reports.
+
+## Current security limitations
+
+The current project is not a production security certification. Human authentication, durable transactional state, provider credential binding, secret management, network policy, and production operational controls remain roadmap work.

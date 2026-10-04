@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from examples.run_gemini_forgeos_trial import (
+    DEFAULT_GEMINI_MODEL,
+    FORGEOS_TOOLS,
+    build_gemini_settings,
+    build_gemini_command,
+    build_trial_environment,
+    prepare_trial,
+)
+
+
+def test_gemini_settings_allow_only_forgeos_mcp(tmp_path: Path) -> None:
+    settings = build_gemini_settings(tmp_path, "forgeos-server.py")
+
+    assert settings["mcp"]["allowed"] == ["forgeos"]
+    # ForgeOS is the authoritative execution gate. Gemini must not add a
+    # second confirmation layer that can be bypassed or drift from policy.
+    assert settings["mcpServers"]["forgeos"]["trust"] is False
+    assert settings["mcpServers"]["forgeos"]["includeTools"] == [
+        "read_file",
+        "forgeos_write_file",
+        "run_test",
+        "git_status",
+        "git_commit",
+        "git_push",
+        "request_action",
+    ]
+    assert "tools" not in settings or "core" not in settings["tools"]
+    assert settings["security"]["disableYoloMode"] is True
+
+
+def test_gemini_settings_do_not_contain_credentials(tmp_path: Path) -> None:
+    settings = build_gemini_settings(tmp_path, "forgeos-server.py")
+    serialized = json.dumps(settings).lower()
+
+    assert "api_key" not in serialized
+    assert "token" not in serialized
+    assert "secret" not in serialized
+
+
+def test_gemini_api_key_auth_is_explicitly_selected(tmp_path: Path) -> None:
+    settings = build_gemini_settings(
+        tmp_path,
+        "forgeos-server.py",
+        provider_auth="gemini-api-key",
+    )
+
+    assert settings["security"]["auth"]["selectedType"] == "gemini-api-key"
+
+
+def test_gemini_command_uses_supported_model_and_no_yolo(tmp_path: Path) -> None:
+    command = build_gemini_command(tmp_path, "Build the trial website")
+
+    assert command[0] == "gemini"
+    assert "--yolo" not in command
+    assert command[command.index("--model") + 1] == DEFAULT_GEMINI_MODEL
+    assert "--approval-mode" in command
+    assert "default" in command
+
+
+def test_gemini_command_rejects_empty_model(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="model"):
+        build_gemini_command(tmp_path, "Build the trial website", model=" ")
+
+
+def test_prepare_trial_creates_complete_isolated_runtime(tmp_path: Path) -> None:
+    paths = prepare_trial(tmp_path, "forgeos-server.py")
+
+    assert paths.root == tmp_path.resolve()
+    assert paths.workspace == (tmp_path / "workspace").resolve()
+    assert paths.state == (tmp_path / "state").resolve()
+    assert paths.home == (tmp_path / "home").resolve()
+    assert paths.gemini_home == (tmp_path / "gemini-home").resolve()
+    assert paths.settings == (tmp_path / "workspace/.gemini/settings.json").resolve()
+
+    assert paths.workspace.is_dir()
+    assert paths.state.is_dir()
+    assert paths.home.is_dir()
+    assert paths.gemini_home.is_dir()
+    assert paths.settings.is_file()
+
+    settings = json.loads(paths.settings.read_text(encoding="utf-8"))
+    assert settings["mcpServers"]["forgeos"]["includeTools"] == FORGEOS_TOOLS
+    assert settings["mcpServers"]["forgeos"]["cwd"] == str(paths.workspace)
+
+
+def test_trial_environment_strips_provider_credentials(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "redacted-test-value")
+    monkeypatch.setenv("GOOGLE_API_KEY", "redacted-test-value")
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/tmp/test-creds.json")
+
+    environment = build_trial_environment(tmp_path)
+
+    assert "GEMINI_API_KEY" not in environment
+    assert "GOOGLE_API_KEY" not in environment
+    assert "GOOGLE_APPLICATION_CREDENTIALS" not in environment
+    assert environment["HOME"] == str(tmp_path.resolve() / "home")
+    assert environment["GEMINI_CLI_HOME"] == str(tmp_path.resolve() / "gemini-home")
+
+
+def test_trial_environment_passes_api_key_only_with_explicit_opt_in(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "redacted-test-value")
+    monkeypatch.setenv("GOOGLE_API_KEY", "must-stay-out")
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/tmp/must-stay-out.json")
+
+    environment = build_trial_environment(tmp_path, provider_auth="gemini-api-key")
+
+    assert environment["GEMINI_API_KEY"] == "redacted-test-value"
+    assert "GOOGLE_API_KEY" not in environment
+    assert "GOOGLE_APPLICATION_CREDENTIALS" not in environment
+
+
+def test_api_key_opt_in_requires_key_in_operator_environment(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
+        build_trial_environment(tmp_path, provider_auth="gemini-api-key")
