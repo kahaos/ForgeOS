@@ -1,0 +1,51 @@
+ForgeOS Real Gemini MCP — Write + Test Success
+Date: 2026-10-04
+Model: gemini-3.7-flash
+
+Agent:
+  website-agent
+
+Task:
+  real-agent-website-build
+
+Capabilities:
+  FS_READ
+  FS_WRITE
+  GIT_COMMIT
+  GIT_PUSH
+  GIT_READ
+  READ_SECRETS
+  TEST_RUN
+
+Governed workflow demonstrated:
+
+  1. Gemini invoked ForgeOS MCP forgeos_write_file.
+  2. ForgeOS authorised FS_WRITE.
+  3. Gemini created test_site.py.
+  4. Gemini invoked ForgeOS MCP run_test.
+  5. ForgeOS authorised TEST_RUN.
+  6. First execution failed because site/index.html did not yet exist.
+  7. Gemini invoked forgeos_write_file to create site/index.html.
+  8. Gemini invoked forgeos_write_file to correct/recreate test_site.py.
+  9. Gemini invoked run_test again.
+  10. ForgeOS authorised TEST_RUN.
+  11. SafeTestAdapter executed pytest -q.
+  12. Final result: returncode 0, 1 passed.
+
+Final test result:
+  . [100%]
+  1 passed in 0.00s
+
+Final governed files:
+  site/index.html
+  test_site.py
+
+Security property demonstrated:
+  Gemini performed filesystem writes and test execution through
+  ForgeOS governed MCP tools rather than unrestricted shell execution.
+
+Evidence:
+  state/evidence.jsonl
+
+This run proves real-agent write -> test execution through the
+ForgeOS authority boundary.
