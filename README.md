@@ -10,7 +10,7 @@ ForgeOS is a **proprietary source-available** AI agent control plane that sits b
 
 ## Status
 
-ForgeOS has a working governed execution path through MCP and real AI-agent trials using Gemini and OpenRouter. The latest 2026-10-05 milestone demonstrated an autonomous OpenRouter agent recovering from an upstream provider failure, continuing its task, and reaching completion only after ForgeOS independently validated the result and the files created during the current run.
+ForgeOS has a working governed execution path through MCP and a real AI agent trial using Gemini and OpenRouter. The latest 2026-10-05 milestone demonstrated an autonomous OpenRouter agent recovering from an upstream provider failure, continuing its task, and reaching completion only after ForgeOS independently validated the result and the files created during the current run.
 
 The latest full regression verification is **179 passed, 7 skipped**.
 
