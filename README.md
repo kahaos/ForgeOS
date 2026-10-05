@@ -4,7 +4,7 @@
 >
 > **Agent autonomy should not mean unrestricted authority.**
 
-ForgeOS is a **proprietary source-available** control plane that sits between AI agents and the systems they can affect. It evaluates identity, capability, task scope, risk, policy, human approval, execution, and evidence before consequential actions are allowed to run.
+ForgeOS is a **proprietary source-available** AI agent control plane that sits between AI agents and the systems they can affect. It evaluates identity, capability, task scope, risk, policy, human approval, execution, and evidence before consequential actions are allowed to run.
 
 **The model is not the authority. ForgeOS is.**
 
@@ -19,6 +19,19 @@ This is prototype validation, not production readiness or a security certificati
 → [Architecture](docs/FORGEOS_ARCHITECTURE.md)  
 → [Security model](docs/SECURITY_MODEL.md)  
 → [Roadmap](docs/ROADMAP.md)
+
+## AI agent security
+
+ForgeOS treats **AI agent security** as an authorization and execution-boundary problem: an agent should be able to act autonomously inside a defined contract without receiving unrestricted authority over the surrounding environment.
+
+Key controls include agent authorization, task-scoped permissions, least-privilege capabilities, resource and branch scope, multi-agent security boundaries, human approval for consequential actions, short-lived execution authorization, and committed security evidence.
+
+→ [Why ForgeOS](docs/WHY_FORGEOS.md)  
+→ [AI agent authorization](docs/AI_AGENT_AUTHORIZATION.md)  
+→ [Multi-agent security](docs/MULTI_AGENT_SECURITY.md)  
+→ [Real agent quickstart](docs/REAL_AGENT_QUICKSTART.md)  
+→ [Security evidence](docs/EVIDENCE.md)  
+→ [Security model](docs/SECURITY_MODEL.md)
 
 ## Core idea
 
