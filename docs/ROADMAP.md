@@ -19,6 +19,11 @@ Verified in the current development track:
 - provider-neutral Runtime Gateway
 - reproducible real-agent-shaped trial harness using safe simulated adapters
 - real Gemini MCP execution through the governed ForgeOS boundary
+- OpenRouter provider adapter with provider-neutral authority enforcement
+- real OpenRouter tool-call execution through the governed ForgeOS boundary
+- autonomous website-building trial where the agent selected its own files and implementation while ForgeOS retained filesystem authority
+
+The latest provider-neutral validation demonstrated that the model/provider can request actions, but ForgeOS remains responsible for scope, policy, human approval, execution authority and evidence.
 
 ## Next: multi-provider agent support
 
@@ -27,12 +32,31 @@ ForgeOS should evolve from a Gemini proof into a provider-neutral authority laye
 Priority provider integrations:
 
 - Gemini — current real-agent integration
+- OpenRouter — validated provider gateway and multi-model path
 - Anthropic / Claude
 - OpenAI / ChatGPT
 - xAI / Grok
 - additional major providers and OpenAI-compatible/local models where practical
 
 The architecture should use a common agent-adapter/runtime interface so provider-specific integrations remain thin while identity, task scope, policy, approval, execution authority, and evidence remain ForgeOS responsibilities.
+
+## Next: autonomous task execution
+
+The next product step is to turn the successful autonomous website spike into a reusable governed task runtime rather than a one-off demonstration.
+
+The agent should receive a high-level objective and be able to determine its own intermediate actions, while ForgeOS remains responsible for:
+
+- identity
+- task scope
+- capability grants
+- policy evaluation
+- ALLOW / ASK / DENY decisions
+- human approval
+- governed execution
+- evidence
+- task completion state
+
+The goal is to avoid requiring users to write detailed execution plans or tool-by-tool instructions for routine agent work.
 
 ## Next: first serious application integration — GitHub
 
