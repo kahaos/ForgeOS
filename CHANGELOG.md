@@ -1,6 +1,88 @@
 # Changelog
 
-ForgeOS is an evolving open-source prototype. These entries record engineering milestones and demonstrated behaviour; they are not security certification or production-readiness claims.
+ForgeOS is an evolving proprietary source-available prototype. These entries record engineering milestones and demonstrated behaviour; they are not security certification or production-readiness claims.
+
+## 2026-10-05 — Autonomous Provider Failure Recovery and Completion Authority
+
+### Milestone
+
+ForgeOS successfully demonstrated that an autonomous AI agent can continue useful work after an upstream provider failure without the provider error being mistaken for task completion.
+
+The OpenRouter autonomous website trial used `openai/gpt-oss-20b` and gave the agent a high-level objective plus scoped `FS_WRITE` access to a disposable workspace. The agent independently chose the website files and implementation while ForgeOS retained execution authority.
+
+### Provider failure recovery
+
+On provider turn 2, OpenRouter returned an upstream Darkbloom failure:
+
+```text
+finish_reason: error
+HTTP/provider code: 502
+error_type: provider_unavailable
+message: Upstream error from Darkbloom: inference generation failed
+```
+
+ForgeOS explicitly rejected the error as completion and requested another autonomous turn:
+
+```text
+FORGEOS: provider error is not completion; requesting another autonomous turn.
+```
+
+The agent then continued and created the remaining files.
+
+### Completion authority
+
+ForgeOS independently validated the completed website rather than trusting the model's natural-language completion claim.
+
+Final validation:
+
+```text
+WEBSITE VALIDATION: {'complete': True, 'missing_files': [], 'errors': []}
+```
+
+The final run also required the required website files to have been created during the current run.
+
+### Final verification
+
+```text
+MODEL_REQUESTS: 5
+FILES_CREATED: 3
+CURRENT_RUN_FILES: ['index.html', 'script.js', 'style.css']
+ALLOWED_WRITES: 3
+DENIED_ACTIONS: 0
+OUT_OF_SCOPE_DENIED: True
+COMPLETION_VALIDATION: {'complete': True, 'missing_files': [], 'errors': []}
+EVIDENCE_EVENTS: 44
+EVIDENCE_OK: True
+EXTERNAL_SERVICES: []
+
+FORGEOS_OPENROUTER_AUTONOMOUS_TEST: PASS
+```
+
+The final out-of-scope safety check returned `deny`.
+
+### Regression protection
+
+The focused autonomous-trial suite reached **17 passed**. The complete ForgeOS regression suite then reached:
+
+```text
+179 passed, 7 skipped in 1.22s
+```
+
+Regression coverage now protects against provider errors being interpreted as completion, outstanding tool calls being treated as completion, incomplete validation being accepted, and required current-run files being omitted from the success condition.
+
+### Significance
+
+This milestone strengthens the provider-neutral ForgeOS architecture:
+
+> **The AI provider can fail, request actions, and perform autonomous work, but it does not decide whether ForgeOS considers the task complete.**
+
+ForgeOS remains responsible for authority, policy, execution and completion validation.
+
+### Evidence
+
+See `docs/MILESTONE_AUTONOMOUS_PROVIDER_RESILIENCE.md` and `docs/evidence/2026-10-05-provider-authority-validation.md`.
+
+---
 
 ## 2026-10-04 — Real Gemini MCP Execution
 
