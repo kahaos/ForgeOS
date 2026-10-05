@@ -10,21 +10,54 @@ ForgeOS is a **proprietary source-available** AI agent control plane that sits b
 
 ## Status
 
-ForgeOS has a working governed execution path through MCP and a **real AI agent trial** using Gemini. The 2026-10-04 milestone demonstrated a Gemini agent crossing the ForgeOS boundary, receiving task-scoped `FS_WRITE` authority, writing to a disposable workspace, and producing committed evidence. The repository currently records **159 passing tests** after that milestone.
+ForgeOS has a working governed execution path through MCP and real AI-agent trials using Gemini and OpenRouter. The latest 2026-10-05 milestone demonstrated an autonomous OpenRouter agent recovering from an upstream provider failure, continuing its task, and reaching completion only after ForgeOS independently validated the result and the files created during the current run.
+
+The latest full regression verification is **179 passed, 7 skipped**.
 
 This is prototype validation, not production readiness or a security certification.
 
+→ [Autonomous provider resilience milestone](docs/MILESTONE_AUTONOMOUS_PROVIDER_RESILIENCE.md)  
 → [Real Gemini MCP milestone](docs/MILESTONE_REAL_GEMINI_MCP.md)  
 → [Evidence](docs/EVIDENCE.md)  
 → [Architecture](docs/FORGEOS_ARCHITECTURE.md)  
 → [Security model](docs/SECURITY_MODEL.md)  
-→ [Roadmap](docs/ROADMAP.md)
+→ [Roadmap](docs/ROADMAP.md)  
+→ [Changelog](CHANGELOG.md)
+
+## Latest verified milestone
+
+On 2026-10-05, the autonomous website trial used `openai/gpt-oss-20b` through OpenRouter. The agent had a high-level objective and scoped `FS_WRITE` authority rather than a prescribed file-by-file plan.
+
+During the run, the upstream provider returned a `502 provider_unavailable` error. ForgeOS explicitly rejected that error as completion and requested another autonomous turn. The agent then created the remaining files.
+
+```text
+Provider turn 1  -> index.html -> ALLOW
+Provider turn 2  -> upstream 502/provider_unavailable
+ForgeOS          -> not completion -> continue
+Provider turn 3  -> style.css -> ALLOW
+Provider turn 4  -> script.js -> ALLOW
+Provider turn 5  -> stop
+ForgeOS          -> validate workspace -> COMPLETE
+```
+
+Final verification included:
+
+- 5 provider turns
+- 3 files created during the current run
+- 3 allowed writes
+- completion validation passed
+- out-of-scope action denied
+- evidence verification passed
+- no external services
+- `FORGEOS_OPENROUTER_AUTONOMOUS_TEST: PASS`
+
+This demonstrates that the provider can fail or request work without becoming the authority over ForgeOS task completion.
 
 ## AI agent security
 
 ForgeOS treats **AI agent security** as an authorization and execution-boundary problem: an agent should be able to act autonomously inside a defined contract without receiving unrestricted authority over the surrounding environment.
 
-Key controls include agent authorization, task-scoped permissions, least-privilege capabilities, resource and branch scope, multi-agent security boundaries, human approval for consequential actions, short-lived execution authorization, and committed security evidence.
+Key controls include agent authorization, task-scoped permissions, least-privilege capabilities, resource and branch scope, multi-agent security boundaries, human approval for consequential actions, short-lived execution authorization, completion validation, provider-failure boundaries, and committed security evidence.
 
 → [Why ForgeOS](docs/WHY_FORGEOS.md)  
 → [AI agent authorization](docs/AI_AGENT_AUTHORIZATION.md)  
@@ -46,7 +79,8 @@ ForgeOS Authority
    ├── Task + Scope
    ├── Risk
    ├── Policy
-   └── Human Approval
+   ├── Human Approval
+   └── Completion Validation
    │
    ├── ALLOW
    ├── ASK
@@ -79,6 +113,12 @@ ForgeOS is not another AI agent. It is designed as a provider-neutral authority 
 - Docker-backed isolated worker tests
 - provider-neutral Runtime Gateway
 - real external Gemini MCP execution
+- real OpenRouter governed tool-call execution
+- autonomous agent task execution from a high-level objective
+- provider-failure recovery without implicit task completion
+- independent completion validation
+- current-run file provenance checks for autonomous website completion
+- out-of-scope denial after successful autonomous work
 - committed authorization, execution and evidence records
 
 ## Roadmap
