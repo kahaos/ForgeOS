@@ -143,7 +143,7 @@ class ApoaEngine:
 
     @staticmethod
     def _matches(target: str, allowed: Iterable[str]) -> bool:
-        return any(target == pattern or target.startswith(pattern.rstrip("*") ) for pattern in allowed)
+        return any(target == pattern or target.startswith(pattern.rstrip("*")) for pattern in allowed)
 
     @staticmethod
     def _valid_approval(request: ExecutionRequest, approval: Approval) -> bool:

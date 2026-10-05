@@ -1,4 +1,4 @@
-"""Canonical, provider-neutral Apoa Core data structures."""
+"""Canonical, provider-neutral Apoa data structures."""
 
 from __future__ import annotations
 

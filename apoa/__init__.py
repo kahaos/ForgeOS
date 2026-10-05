@@ -1,4 +1,4 @@
-"""Apoa Core v1 — AI-agnostic authorization for tool execution."""
+"""Apoa — AI-agnostic authorization for tool execution."""
 
 from .engine import ApoaEngine
 from .models import (
