@@ -50,6 +50,7 @@ class Policy:
 class Approval:
     approval_id: str
     request_id: str
+    request_fingerprint: str
     approver: str
     approved: bool
     expires_at: float
@@ -60,10 +61,12 @@ class Approval:
 class Authorization:
     authorization_id: str
     request_id: str
+    request_fingerprint: str | None
     decision: Decision
     reason: str
     policy: str
     policy_version: str
+    issued_at: float = field(default_factory=time.time)
     expires_at: float | None = None
     nonce: str | None = None
     approval_id: str | None = None
