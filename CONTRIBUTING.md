@@ -1,8 +1,8 @@
 # Contributing to ForgeOS
 
-ForgeOS is an open-source project exploring secure authorization and governed execution for autonomous AI agents.
+ForgeOS is a **proprietary source-available project**, not an open-source project. The source may be inspected and used only as permitted by the [ForgeOS Source-Available License 1.0](LICENSE).
 
-The project is especially interested in contributions around **agent security, least privilege, runtime authorization, policy, human approval, MCP, provider adapters, evidence, and secure integrations**.
+The project is especially interested in work around **agent security, least privilege, runtime authorization, policy, human approval, MCP, provider adapters, evidence, and secure integrations**.
 
 ## Before opening a change
 
@@ -46,3 +46,7 @@ Do not commit credentials or production configuration.
 Write for the person trying to solve a concrete AI-agent security or authorization problem. Keep product claims proportional to the evidence in the repository. Clearly distinguish **verified**, **experimental**, and **planned** capabilities.
 
 For security vulnerabilities, follow [SECURITY.md](SECURITY.md) rather than opening a public issue with sensitive details.
+
+## Contribution rights
+
+Submitting a contribution does not grant the contributor a right to use, redistribute, or commercially exploit the ForgeOS codebase. Contributions are accepted only under the terms permitted by the project license and any separate written contributor agreement.
