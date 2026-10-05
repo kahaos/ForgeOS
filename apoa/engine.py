@@ -1,8 +1,4 @@
-"""Deterministic Apoa authorization engine.
-
-This module intentionally contains no model-provider or tool-execution code.
-It evaluates canonical requests and returns an authorization decision.
-"""
+"""Deterministic Apoa authorization engine."""
 
 from __future__ import annotations
 
@@ -11,6 +7,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Iterable
 
+from .canonical import request_fingerprint
 from .models import Approval, Authorization, Decision, ExecutionRequest, Policy, PolicyRule
 
 
@@ -29,7 +26,7 @@ class Evidence:
 
 
 class ApoaEngine:
-    """Small, provider-neutral policy enforcement core."""
+    """Provider-neutral policy and execution-authorization core."""
 
     def __init__(self, policy: Policy, *, authorization_ttl: float = 60.0) -> None:
         self.policy = policy
@@ -44,11 +41,7 @@ class ApoaEngine:
             return self._record(request, Decision.DENY, "No policy rule permits this action")
 
         if rule.required_capability and rule.required_capability not in request.capabilities:
-            return self._record(
-                request,
-                Decision.DENY,
-                f"Missing capability: {rule.required_capability}",
-            )
+            return self._record(request, Decision.DENY, f"Missing capability: {rule.required_capability}")
 
         if rule.allowed_targets and not self._matches(request.target, rule.allowed_targets):
             return self._record(request, Decision.DENY, "Target is outside policy scope")
@@ -61,11 +54,7 @@ class ApoaEngine:
             if value is None:
                 continue
             if not isinstance(value, (int, float)) or value > maximum:
-                return self._record(
-                    request,
-                    Decision.DENY,
-                    f"Parameter exceeds policy limit: {name} <= {maximum}",
-                )
+                return self._record(request, Decision.DENY, f"Parameter exceeds policy limit: {name} <= {maximum}")
 
         if rule.decision is Decision.DENY:
             return self._record(request, Decision.DENY, "Action is explicitly denied by policy")
@@ -75,21 +64,31 @@ class ApoaEngine:
 
         return self._record(request, Decision.ALLOW, "Action satisfies policy")
 
-    def approve(
-        self,
-        request: ExecutionRequest,
-        approver: str,
-        *,
-        ttl: float = 300.0,
-    ) -> Approval:
+    def approve(self, request: ExecutionRequest, approver: str, *, ttl: float = 300.0) -> Approval:
+        fingerprint = request_fingerprint(request, self.policy.name, self.policy.version)
         approval = Approval(
             approval_id=f"apr_{uuid.uuid4().hex}",
             request_id=request.request_id,
+            request_fingerprint=fingerprint,
             approver=approver,
             approved=True,
             expires_at=time.time() + ttl,
         )
         self._approvals[approval.approval_id] = approval
+        self._evidence.append(
+            Evidence(
+                request_id=request.request_id,
+                authorization_id="",
+                decision=Decision.REQUIRE_APPROVAL,
+                reason="Human approval granted",
+                timestamp=time.time(),
+                agent=request.agent,
+                action=request.action,
+                target=request.target,
+                policy=self.policy.name,
+                policy_version=self.policy.version,
+            )
+        )
         return approval
 
     def issue_execution_authorization(
@@ -100,19 +99,19 @@ class ApoaEngine:
         ttl: float | None = None,
     ) -> Authorization:
         decision = self.authorize(request)
-
         if decision.decision is Decision.DENY:
             return decision
 
-        if decision.requires_approval:
-            if approval is None or not self._valid_approval(request, approval):
-                return self._record(request, Decision.REQUIRE_APPROVAL, "Valid human approval required")
+        fingerprint = request_fingerprint(request, self.policy.name, self.policy.version)
+        if decision.requires_approval and (approval is None or not self._valid_approval(request, approval, fingerprint)):
+            return self._record(request, Decision.REQUIRE_APPROVAL, "Valid human approval required")
 
         nonce = f"nonce_{uuid.uuid4().hex}"
         expiry = time.time() + (self.authorization_ttl if ttl is None else ttl)
         authorization = Authorization(
             authorization_id=f"auth_{uuid.uuid4().hex}",
             request_id=request.request_id,
+            request_fingerprint=fingerprint,
             decision=Decision.ALLOW,
             reason="Execution authorized",
             policy=self.policy.name,
@@ -124,15 +123,29 @@ class ApoaEngine:
         self._record_authorization(request, authorization)
         return authorization
 
-    def consume(self, authorization: Authorization) -> bool:
-        """Consume a short-lived execution authorization exactly once."""
-        if not authorization.allowed or not authorization.nonce or authorization.expires_at is None:
+    def consume(self, request: ExecutionRequest, authorization: Authorization) -> bool:
+        """Validate and consume an execution authorization exactly once."""
+        if not authorization.allowed or not authorization.nonce or not authorization.request_fingerprint:
+            self._record_security_failure(request, authorization, "Invalid authorization")
             return False
-        if time.time() >= authorization.expires_at:
+        if authorization.request_id != request.request_id:
+            self._record_security_failure(request, authorization, "Authorization request ID mismatch")
+            return False
+        if authorization.policy != self.policy.name or authorization.policy_version != self.policy.version:
+            self._record_security_failure(request, authorization, "Authorization policy version mismatch")
+            return False
+        expected = request_fingerprint(request, self.policy.name, self.policy.version)
+        if authorization.request_fingerprint != expected:
+            self._record_security_failure(request, authorization, "Authorization fingerprint mismatch")
+            return False
+        if authorization.expires_at is None or time.time() >= authorization.expires_at:
+            self._record_security_failure(request, authorization, "Authorization expired")
             return False
         if authorization.nonce in self._used_nonces:
+            self._record_security_failure(request, authorization, "Authorization replay blocked")
             return False
         self._used_nonces.add(authorization.nonce)
+        self._record_security_failure(request, authorization, "Authorization consumed")
         return True
 
     def evidence(self) -> tuple[Evidence, ...]:
@@ -146,10 +159,11 @@ class ApoaEngine:
         return any(target == pattern or target.startswith(pattern.rstrip("*")) for pattern in allowed)
 
     @staticmethod
-    def _valid_approval(request: ExecutionRequest, approval: Approval) -> bool:
+    def _valid_approval(request: ExecutionRequest, approval: Approval, fingerprint: str) -> bool:
         return (
             approval.approved
             and approval.request_id == request.request_id
+            and approval.request_fingerprint == fingerprint
             and approval.expires_at > time.time()
         )
 
@@ -157,6 +171,7 @@ class ApoaEngine:
         authorization = Authorization(
             authorization_id=f"auth_{uuid.uuid4().hex}",
             request_id=request.request_id,
+            request_fingerprint=request_fingerprint(request, self.policy.name, self.policy.version),
             decision=decision,
             reason=reason,
             policy=self.policy.name,
@@ -172,6 +187,22 @@ class ApoaEngine:
                 authorization_id=authorization.authorization_id,
                 decision=authorization.decision,
                 reason=authorization.reason,
+                timestamp=time.time(),
+                agent=request.agent,
+                action=request.action,
+                target=request.target,
+                policy=self.policy.name,
+                policy_version=self.policy.version,
+            )
+        )
+
+    def _record_security_failure(self, request: ExecutionRequest, authorization: Authorization, reason: str) -> None:
+        self._evidence.append(
+            Evidence(
+                request_id=request.request_id,
+                authorization_id=authorization.authorization_id,
+                decision=Decision.DENY,
+                reason=reason,
                 timestamp=time.time(),
                 agent=request.agent,
                 action=request.action,
