@@ -2,6 +2,8 @@
 
 ForgeOS is an AI-agent authorization and governed-execution prototype. Security review is a first-class part of the project.
 
+ForgeOS is specifically concerned with **AI agent security**, authorization, and governed execution across the tools and systems an AI agent can affect.
+
 ## Security-sensitive reports
 
 Reports involving the following are especially valuable:
