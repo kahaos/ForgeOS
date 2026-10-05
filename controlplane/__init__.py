@@ -3,6 +3,7 @@
 from .authority import CapabilityGrant, Scope, Task
 from .gateway import RuntimeGateway
 from .models import Agent, ActionRequest, Decision
+from .openrouter_adapter import OpenRouterAdapter
 from .store import ControlPlane
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "Scope",
     "CapabilityGrant",
     "RuntimeGateway",
+    "OpenRouterAdapter",
 ]
