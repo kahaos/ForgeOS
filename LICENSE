@@ -1,0 +1,55 @@
+ForgeOS Source-Available License 1.0
+
+Copyright (c) 2026 ForgeOS.
+
+IMPORTANT: This is a proprietary source-available license. ForgeOS is NOT open-source software under this license.
+
+1. Grant of Limited Rights
+
+Subject to the terms of this License, the copyright holder grants you a limited, non-exclusive, non-transferable, revocable license to view the ForgeOS source code and to run an unmodified copy of the software for personal, internal evaluation, research, and non-commercial development purposes.
+
+2. Restrictions
+
+Unless you have a separate written commercial license from the copyright holder, you may not:
+
+- sell, license, sublicense, rent, lease, or otherwise commercially distribute ForgeOS or a substantial portion of it;
+- use ForgeOS or a substantial portion of its source code to provide a commercial hosted, managed, SaaS, or agent-governance service to third parties;
+- copy, modify, adapt, translate, or create derivative works of ForgeOS for commercial use;
+- incorporate substantial portions of ForgeOS into another commercial product or service;
+- redistribute ForgeOS or substantial portions of its source code, whether modified or unmodified;
+- remove or obscure copyright, license, trademark, or attribution notices; or
+- use the ForgeOS name or trademarks to imply endorsement or affiliation without written permission.
+
+3. Contributions
+
+No contribution is accepted under this License unless the contributor has the right to grant the required rights. By submitting a contribution to the repository, you agree that the contribution may be used, modified, and distributed by the copyright holder as part of ForgeOS and under any future commercial or source-available licensing terms selected by the copyright holder, subject to any separate written contributor agreement.
+
+4. Third-Party Components
+
+This License applies only to material owned by the ForgeOS copyright holder. Third-party dependencies and components remain subject to their own licenses. Nothing in this License grants rights that the copyright holder does not possess.
+
+5. No Trademark License
+
+This License does not grant rights to use the ForgeOS name, logos, trademarks, service marks, or branding except as necessary to accurately refer to the software.
+
+6. Disclaimer
+
+ForgeOS is provided "AS IS" and "AS AVAILABLE", without warranties of any kind, express or implied, to the maximum extent permitted by applicable law.
+
+7. Limitation of Liability
+
+To the maximum extent permitted by applicable law, the copyright holder will not be liable for any indirect, incidental, special, consequential, or exemplary damages arising from use of the software.
+
+8. Termination
+
+The rights granted under this License terminate automatically if you materially breach its terms. Upon termination, you must stop using and distributing ForgeOS except where applicable law requires otherwise.
+
+9. Commercial Licensing
+
+Commercial use, redistribution, hosted deployment, enterprise deployment, or other uses restricted by this License may be permitted under a separate commercial agreement with the copyright holder.
+
+10. Governing Law
+
+This License is intended to be interpreted under applicable law. If any provision is found unenforceable, the remaining provisions remain in effect to the maximum extent permitted by law.
+
+For commercial licensing enquiries, contact the ForgeOS project owner.
