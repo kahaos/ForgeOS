@@ -22,8 +22,42 @@ Verified in the current development track:
 - OpenRouter provider adapter with provider-neutral authority enforcement
 - real OpenRouter tool-call execution through the governed ForgeOS boundary
 - autonomous website-building trial where the agent selected its own files and implementation while ForgeOS retained filesystem authority
+- provider-failure recovery where an upstream 502/error is explicitly rejected as task completion and the agent is given another governed autonomous turn
+- independent task-completion validation rather than trusting an agent's natural-language completion claim
+- current-run completion checks requiring the files needed by the validated task to have been created during that run
+- out-of-scope safety verification after successful autonomous completion
+- full regression verification at **179 passed, 7 skipped**
 
-The latest provider-neutral validation demonstrated that the model/provider can request actions, but ForgeOS remains responsible for scope, policy, human approval, execution authority and evidence.
+The latest provider-neutral validation demonstrated that the model/provider can request actions and autonomously perform useful work, but ForgeOS remains responsible for scope, policy, human approval, execution authority, evidence, and completion state.
+
+## 2026-10-05 milestone: autonomous provider resilience
+
+The OpenRouter autonomous website trial demonstrated a critical control-plane property: an upstream provider failure does not become an implicit completion signal.
+
+The observed sequence was:
+
+```text
+Provider turn 1  -> FS_WRITE index.html -> ALLOW
+Provider turn 2  -> upstream 502/provider_unavailable
+ForgeOS          -> reject as completion
+Provider turn 3  -> FS_WRITE style.css -> ALLOW
+Provider turn 4  -> FS_WRITE script.js -> ALLOW
+Provider turn 5  -> stop
+ForgeOS          -> independent completion validation -> COMPLETE
+```
+
+Final verification included:
+
+- 5 provider turns
+- 3 files created during the current run
+- 3 allowed writes
+- completion validation passed
+- out-of-scope operation denied
+- evidence verification passed
+- no external services
+- `FORGEOS_OPENROUTER_AUTONOMOUS_TEST: PASS`
+
+This milestone is preserved in `docs/MILESTONE_AUTONOMOUS_PROVIDER_RESILIENCE.md` and the dated evidence record.
 
 ## Next: multi-provider agent support
 
@@ -54,7 +88,8 @@ The agent should receive a high-level objective and be able to determine its own
 - human approval
 - governed execution
 - evidence
-- task completion state
+- task completion state and completion validation
+- recovery from provider/tool failures without silently accepting them as completion
 
 The goal is to avoid requiring users to write detailed execution plans or tool-by-tool instructions for routine agent work.
 
@@ -199,6 +234,6 @@ Longer-term work can add:
 
 The long-term product goal is not to make ForgeOS another AI agent. It is to make ForgeOS the **runtime authority layer for autonomous AI agents**.
 
-The model/provider should be replaceable. The tools and applications should be extensible. ForgeOS should remain responsible for identity, authority, policy, risk, approval, governed execution, evidence, and the human-readable record of what an agent did.
+The model/provider should be replaceable. The tools and applications should be extensible. ForgeOS should remain responsible for identity, authority, policy, risk, approval, governed execution, evidence, completion validation, recovery boundaries, and the human-readable record of what an agent did.
 
 Roadmap items are targets, not claims that those capabilities are already production-ready.
