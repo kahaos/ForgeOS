@@ -10,7 +10,7 @@ ForgeOS is a **proprietary source-available** AI agent control plane that sits b
 
 ## Status
 
-ForgeOS has a working governed execution path through MCP and a real Gemini agent trial. The 2026-10-04 milestone demonstrated a Gemini agent crossing the ForgeOS boundary, receiving task-scoped `FS_WRITE` authority, writing to a disposable workspace, and producing committed evidence. The repository currently records **159 passing tests** after that milestone.
+ForgeOS has a working governed execution path through MCP and a **real AI agent trial** using Gemini. The 2026-10-04 milestone demonstrated a Gemini agent crossing the ForgeOS boundary, receiving task-scoped `FS_WRITE` authority, writing to a disposable workspace, and producing committed evidence. The repository currently records **159 passing tests** after that milestone.
 
 This is prototype validation, not production readiness or a security certification.
 
