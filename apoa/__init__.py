@@ -1,14 +1,8 @@
 """Apoa — AI-agnostic authorization for tool execution."""
 
 from .engine import ApoaEngine
-from .models import (
-    Approval,
-    Authorization,
-    Decision,
-    ExecutionRequest,
-    Policy,
-    PolicyRule,
-)
+from .executor import ProtectedExecutor
+from .models import Approval, Authorization, Decision, ExecutionRequest, Policy, PolicyRule
 
 __all__ = [
     "ApoaEngine",
@@ -18,4 +12,5 @@ __all__ = [
     "ExecutionRequest",
     "Policy",
     "PolicyRule",
+    "ProtectedExecutor",
 ]
